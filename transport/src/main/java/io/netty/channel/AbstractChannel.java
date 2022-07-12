@@ -44,9 +44,21 @@ public abstract class AbstractChannel extends DefaultAttributeMap implements Cha
 
     private static final InternalLogger logger = InternalLoggerFactory.getInstance(AbstractChannel.class);
 
+    /**
+     * channel是由创建层次的，比如ServerSocketChannel 是 SocketChannel的 parent
+     */
     private final Channel parent;
+    /**
+     * channel全局唯一ID machineId+processId+sequence+timestamp+random
+     */
     private final ChannelId id;
+    /**
+     * unsafe用于封装对底层socket的相关操作
+     */
     private final Unsafe unsafe;
+    /**
+     * 为channel分配独立的pipeline用于IO事件编排
+     */
     private final DefaultChannelPipeline pipeline;
     private final VoidChannelPromise unsafeVoidPromise = new VoidChannelPromise(this, false);
     private final CloseFuture closeFuture = new CloseFuture(this);
@@ -70,8 +82,11 @@ public abstract class AbstractChannel extends DefaultAttributeMap implements Cha
      */
     protected AbstractChannel(Channel parent) {
         this.parent = parent;
+        // channel全局唯一ID machineId+processId+sequence+timestamp+random
         id = newId();
+        // unsafe用于封装对底层socket的相关操作
         unsafe = newUnsafe();
+        // 为channel分配独立的pipeline用于IO事件编排
         pipeline = newChannelPipeline();
     }
 
