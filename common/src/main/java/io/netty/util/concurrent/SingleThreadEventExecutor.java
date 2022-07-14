@@ -56,6 +56,7 @@ public abstract class SingleThreadEventExecutor extends AbstractScheduledEventEx
     private static final InternalLogger logger =
             InternalLoggerFactory.getInstance(SingleThreadEventExecutor.class);
 
+    //定义Reactor线程状态
     private static final int ST_NOT_STARTED = 1;
     private static final int ST_STARTED = 2;
     private static final int ST_SHUTTING_DOWN = 3;
@@ -69,6 +70,7 @@ public abstract class SingleThreadEventExecutor extends AbstractScheduledEventEx
         }
     };
 
+    // Reactor线程状态字段state 原子更新器
     private static final AtomicIntegerFieldUpdater<SingleThreadEventExecutor> STATE_UPDATER =
             AtomicIntegerFieldUpdater.newUpdater(SingleThreadEventExecutor.class, "state");
     private static final AtomicReferenceFieldUpdater<SingleThreadEventExecutor, ThreadProperties> PROPERTIES_UPDATER =
@@ -91,6 +93,7 @@ public abstract class SingleThreadEventExecutor extends AbstractScheduledEventEx
 
     private long lastExecutionTime;
 
+    // Reactor线程状态  初始为 未启动状态
     @SuppressWarnings({ "FieldMayBeFinal", "unused" })
     private volatile int state = ST_NOT_STARTED;
 
@@ -832,9 +835,13 @@ public abstract class SingleThreadEventExecutor extends AbstractScheduledEventEx
     }
 
     private void execute(Runnable task, boolean immediate) {
+        //当前线程是否为Reactor线程
         boolean inEventLoop = inEventLoop();
+        //addTaskWakesUp = true  addTask唤醒Reactor线程执行任务
         addTask(task);
         if (!inEventLoop) {
+            //如果当前线程不是Reactor线程，则启动Reactor线程
+            //这里可以看出Reactor线程的启动是通过 向NioEventLoop第一次添加异步任务时启动的
             startThread();
             if (isShutdown()) {
                 boolean reject = false;

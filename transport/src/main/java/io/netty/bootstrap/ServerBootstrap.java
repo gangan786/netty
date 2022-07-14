@@ -129,28 +129,36 @@ public class ServerBootstrap extends AbstractBootstrap<ServerBootstrap, ServerCh
 
     @Override
     void init(Channel channel) {
+        // 向ServerSocketChannelConfig设置ServerSocketChannelOption
         setChannelOptions(channel, newOptionsArray(), logger);
+        // 向netty自定义的NioServerSocketChannel设置attributes
         setAttributes(channel, newAttributesArray());
 
         ChannelPipeline p = channel.pipeline();
 
+        // 获取从Reactor线程组
         final EventLoopGroup currentChildGroup = childGroup;
+        // 获取用于初始化客户端SocketChannel的ChannelInitializer
         final ChannelHandler currentChildHandler = childHandler;
+        //获取用户配置的客户端SocketChannel的channelOption以及attributes
         final Entry<ChannelOption<?>, Object>[] currentChildOptions = newOptionsArray(childOptions);
         final Entry<AttributeKey<?>, Object>[] currentChildAttrs = newAttributesArray(childAttrs);
 
+        //向NioServerSocketChannel中的pipeline添加初始化ChannelHandler的逻辑
         p.addLast(new ChannelInitializer<Channel>() {
             @Override
             public void initChannel(final Channel ch) {
                 final ChannelPipeline pipeline = ch.pipeline();
                 ChannelHandler handler = config.handler();
                 if (handler != null) {
+                    // 配置用户设定的handle（通过方法handler(ChannelHandler handler)）
                     pipeline.addLast(handler);
                 }
 
                 ch.eventLoop().execute(new Runnable() {
                     @Override
                     public void run() {
+                        //添加用于接收客户端连接的acceptor
                         pipeline.addLast(new ServerBootstrapAcceptor(
                                 ch, currentChildGroup, currentChildHandler, currentChildOptions, currentChildAttrs));
                     }

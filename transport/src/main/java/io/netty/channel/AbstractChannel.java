@@ -476,6 +476,11 @@ public abstract class AbstractChannel extends DefaultAttributeMap implements Cha
             return remoteAddress0();
         }
 
+        /**
+         * 注册channel到绑定的Reactor
+         * @param eventLoop
+         * @param promise
+         */
         @Override
         public final void register(EventLoop eventLoop, final ChannelPromise promise) {
             ObjectUtil.checkNotNull(eventLoop, "eventLoop");
@@ -483,14 +488,24 @@ public abstract class AbstractChannel extends DefaultAttributeMap implements Cha
                 promise.setFailure(new IllegalStateException("registered to an event loop already"));
                 return;
             }
+            // EventLoop的类型要与Channel的类型一样  Nio Oio Aio
             if (!isCompatible(eventLoop)) {
                 promise.setFailure(
                         new IllegalStateException("incompatible event loop type: " + eventLoop.getClass().getName()));
                 return;
             }
 
+            // channel保存其绑定的Reactor实例
             AbstractChannel.this.eventLoop = eventLoop;
 
+            /**
+             * 执行channel注册的操作必须是Reactor线程来完成
+             *
+             * 1: 如果当前执行线程是Reactor线程，则直接执行register0进行注册
+             * 2：如果当前执行线程是外部线程，则需要将register0注册操作 封装程异步Task 由Reactor线程执行
+             *
+             * 一般从ServerBootStrap启动走到这里的。是用户的main线程，所以通常是执行异步Task执行注册
+             * */
             if (eventLoop.inEventLoop()) {
                 register0(promise);
             } else {
