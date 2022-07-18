@@ -531,24 +531,33 @@ public abstract class AbstractChannel extends DefaultAttributeMap implements Cha
             try {
                 // check if the channel is still open as it could be closed in the mean time when the register
                 // call was outside of the eventLoop
+                // 查看注册操作是否已经取消，或者对应channel已经关闭
                 if (!promise.setUncancellable() || !ensureOpen(promise)) {
                     return;
                 }
                 boolean firstRegistration = neverRegistered;
+                // 执行真正的注册操作
                 doRegister();
+                // 修改注册状态
                 neverRegistered = false;
                 registered = true;
 
                 // Ensure we call handlerAdded(...) before we actually notify the promise. This is needed as the
                 // user may already fire events through the pipeline in the ChannelFutureListener.
+                // 回调pipeline中添加的ChannelInitializer的handlerAdded方法，在这里初始化channelPipeline
                 pipeline.invokeHandlerAddedIfNeeded();
 
+                // 设置regFuture为success，触发operationComplete回调,将bind操作放入Reactor的任务队列中，等待Reactor线程执行
                 safeSetSuccess(promise);
+                // 触发channelRegister事件
                 pipeline.fireChannelRegistered();
                 // Only fire a channelActive if the channel has never been registered. This prevents firing
                 // multiple channel actives if the channel is deregistered and re-registered.
+                // 对于服务端ServerSocketChannel来说 只有绑定端口地址成功后 channel的状态才是active的。
+                // 此时绑定操作作为异步任务在Reactor的任务队列中，绑定操作还没开始，所以这里的isActive()是false
                 if (isActive()) {
                     if (firstRegistration) {
+                        // 触发channelActive事件
                         pipeline.fireChannelActive();
                     } else if (config().isAutoRead()) {
                         // This channel was registered before and autoRead() is set. This means we need to begin read

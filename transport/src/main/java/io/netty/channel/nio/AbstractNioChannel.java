@@ -58,6 +58,9 @@ public abstract class AbstractNioChannel extends AbstractChannel {
      * Channel监听事件合集，这里是SelectionKey.OP_ACCEPT事件
      */
     protected final int readInterestOp;
+    /**
+     * //channel注册到Selector后获得的SelectKey
+     */
     volatile SelectionKey selectionKey;
     boolean readPending;
     private final Runnable clearReadPendingRunnable = new Runnable() {
