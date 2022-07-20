@@ -302,6 +302,7 @@ public abstract class AbstractChannel extends DefaultAttributeMap implements Cha
 
     @Override
     public Channel read() {
+        // 触发read事件
         pipeline.read();
         return this;
     }
@@ -510,6 +511,7 @@ public abstract class AbstractChannel extends DefaultAttributeMap implements Cha
                 register0(promise);
             } else {
                 try {
+                    // Reactor线程的启动是在向Reactor提交第一个异步任务的时候启动的
                     eventLoop.execute(new Runnable() {
                         @Override
                         public void run() {
@@ -596,8 +598,11 @@ public abstract class AbstractChannel extends DefaultAttributeMap implements Cha
                         "address (" + localAddress + ") anyway as requested.");
             }
 
+            // 判断Channel是否被激活
             boolean wasActive = isActive();
             try {
+                // io.netty.channel.socket.nio.NioServerSocketChannel.doBind
+                // 调用具体channel实现类
                 doBind(localAddress);
             } catch (Throwable t) {
                 safeSetFailure(promise, t);
@@ -605,15 +610,19 @@ public abstract class AbstractChannel extends DefaultAttributeMap implements Cha
                 return;
             }
 
+            // 绑定成功后 channel激活 触发channelActive事件传播
+            // 使用异步线程触发channelActive事件，是因为假如用当前线程触发的话，
+            // 会延迟注册在promise的ChannelFutureListener的回调
             if (!wasActive && isActive()) {
                 invokeLater(new Runnable() {
                     @Override
                     public void run() {
+                        // pipeline中触发channelActive事件
                         pipeline.fireChannelActive();
                     }
                 });
             }
-
+            // 回调注册在promise上的ChannelFutureListener
             safeSetSuccess(promise);
         }
 
@@ -870,6 +879,7 @@ public abstract class AbstractChannel extends DefaultAttributeMap implements Cha
             assertEventLoop();
 
             try {
+                // 触发在selector上注册channel感兴趣的监听事件
                 doBeginRead();
             } catch (final Exception e) {
                 invokeLater(new Runnable() {

@@ -288,10 +288,12 @@ public abstract class AbstractBootstrap<B extends AbstractBootstrap<B, C>, C ext
             // Registration future is almost always fulfilled already, but just in case it's not.
             // 如果此时注册操作还没有完成，则向feature添加operationComplete回调函数，注册成功后回调
             final PendingRegistrationPromise promise = new PendingRegistrationPromise(channel);
+            // 添加注册完成 回调函数
             regFuture.addListener(new ChannelFutureListener() {
                 @Override
                 public void operationComplete(ChannelFuture future) throws Exception {
                     Throwable cause = future.cause();
+                    // 注册ServerSocketChannel到main reactor完成后，Reactor线程回调这里
                     if (cause != null) {
                         // Registration on the EventLoop failed so fail the ChannelPromise directly to not cause an
                         // IllegalStateException once we try to access the EventLoop of the Channel.

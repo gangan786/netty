@@ -59,7 +59,7 @@ public abstract class AbstractNioChannel extends AbstractChannel {
      */
     protected final int readInterestOp;
     /**
-     * //channel注册到Selector后获得的SelectKey
+     * channel注册到Selector后获得的SelectKey
      */
     volatile SelectionKey selectionKey;
     boolean readPending;
@@ -420,7 +420,9 @@ public abstract class AbstractNioChannel extends AbstractChannel {
         readPending = true;
 
         final int interestOps = selectionKey.interestOps();
+        // ServerSocketChannel 初始化时 readInterestOp设置的是OP_ACCEPT事件
         if ((interestOps & readInterestOp) == 0) {
+            // 添加OP_ACCEPT事件到interestOps集合中
             selectionKey.interestOps(interestOps | readInterestOp);
         }
     }
