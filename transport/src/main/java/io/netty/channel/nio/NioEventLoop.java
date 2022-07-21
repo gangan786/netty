@@ -439,8 +439,10 @@ public final class NioEventLoop extends SingleThreadEventLoop {
         int selectCnt = 0;
         for (;;) {
             try {
+                // 记录轮询次数 用于解决JDK epoll的空轮训bug
                 int strategy;
                 try {
+                    // 根据轮询策略获取轮询结果 这里的hasTasks()主要检查的是普通队列和尾部队列中是否有异步任务等待执行
                     strategy = selectStrategy.calculateStrategy(selectNowSupplier, hasTasks());
                     switch (strategy) {
                     case SelectStrategy.CONTINUE:
@@ -804,6 +806,11 @@ public final class NioEventLoop extends SingleThreadEventLoop {
         return unwrappedSelector;
     }
 
+    /**
+     * 非阻塞查看当前是否有IO就绪事件发生
+     * @return
+     * @throws IOException
+     */
     int selectNow() throws IOException {
         return selector.selectNow();
     }

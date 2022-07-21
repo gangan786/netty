@@ -27,14 +27,17 @@ public interface SelectStrategy {
 
     /**
      * Indicates a blocking select should follow.
+     * 此时没有任何异步任务需要执行，Reactor线程可以安心的阻塞在Selector上等待IO就绪事件的来临。
      */
     int SELECT = -1;
     /**
      * Indicates the IO loop should be retried, no blocking select to follow directly.
+     * 重新开启一轮IO轮询
      */
     int CONTINUE = -2;
     /**
      * Indicates the IO loop to poll for new events without blocking.
+     * Reactor线程进行自旋轮询，由于NIO 不支持自旋操作，所以这里直接跳到SelectStrategy.SELECT策略。
      */
     int BUSY_WAIT = -3;
 
