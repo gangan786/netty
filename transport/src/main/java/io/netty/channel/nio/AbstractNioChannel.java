@@ -423,6 +423,7 @@ public abstract class AbstractNioChannel extends AbstractChannel {
         // ServerSocketChannel 初始化时 readInterestOp设置的是OP_ACCEPT事件
         if ((interestOps & readInterestOp) == 0) {
             // 添加OP_ACCEPT事件到interestOps集合中
+            // 注册监听OP_ACCEPT或者OP_READ事件
             selectionKey.interestOps(interestOps | readInterestOp);
         }
     }
