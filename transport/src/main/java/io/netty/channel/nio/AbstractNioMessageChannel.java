@@ -72,9 +72,10 @@ public abstract class AbstractNioMessageChannel extends AbstractNioChannel {
             // NioServerSocketChannelConfig会随着NioServerSocketChannel的创建而创建
             final ChannelConfig config = config();
             final ChannelPipeline pipeline = pipeline();
-            // 创建接收数据Buffer分配器（用于分配容量大小合适的byteBuffer用来容纳接收数据），在NioServerSocketChannelConfig创建的时候创建，实现类是：AdaptiveRecvByteBufAllocator
+            // 创建接收数据Buffer分配器（用于分配容量大小合适的byteBuffer用来容纳接收数据），在NioServerSocketChannelConfig创建的时候创建，实现类是：ServerChannelRecvByteBufAllocator
             // 在接收连接的场景中，这里的allocHandle只是用于控制read loop的循环读取创建连接的次数。
             final RecvByteBufAllocator.Handle allocHandle = unsafe().recvBufAllocHandle();
+            // 每次在使用allocHandle前需要调用allocHandle.reset(config);重置里边的统计指标。
             allocHandle.reset(config);
 
             boolean closed = false;

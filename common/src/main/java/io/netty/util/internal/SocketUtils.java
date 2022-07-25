@@ -116,6 +116,9 @@ public final class SocketUtils {
             return AccessController.doPrivileged(new PrivilegedExceptionAction<SocketChannel>() {
                 @Override
                 public SocketChannel run() throws IOException {
+                    // 内核会基于监听Socket创建出来一个新的Socket专门用于与客户端之间的网络通信这个我们称之为客户端连接Socket。
+                    // 这里的ServerSocketChannel就类似于监听Socket。
+                    // SocketChannel就类似于客户端连接Socket。
                     return serverSocketChannel.accept();
                 }
             });

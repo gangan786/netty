@@ -161,6 +161,13 @@ public class NioServerSocketChannel extends AbstractNioMessageChannel
         SocketChannel ch = SocketUtils.accept(javaChannel());
 
         try {
+            /**
+             * 这里进行判空的原因：
+             * 由于我们在创建NioServerSocketChannel的时候，
+             * 会将JDK NIO 原生的ServerSocketChannel设置为非阻塞（io/netty/channel/nio/AbstractNioChannel.java:94），
+             * 所以这里当ServerSocketChannel上有客户端连接时就会直接创建SocketChannel，
+             * 如果此时并没有客户端连接时accept调用就会立刻返回null并不会阻塞
+             */
             if (ch != null) {
                 buf.add(new NioSocketChannel(this, ch));
                 return 1;
