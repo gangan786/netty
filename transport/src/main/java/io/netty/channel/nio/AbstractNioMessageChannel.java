@@ -106,7 +106,7 @@ public abstract class AbstractNioMessageChannel extends AbstractNioChannel {
                 int size = readBuf.size();
                 for (int i = 0; i < size; i ++) {
                     readPending = false;
-                    // 在NioServerSocketChannel对应的pipeline中传播ChannelRead事件
+                    // 在NioServerSocketChannel对应的pipeline中传播ChannelRead事件，由ServerBootstrapAcceptor响应channelRead事件
                     // 初始化客户端SocketChannel，并将其绑定到Sub Reactor线程组中的一个Reactor上
                     pipeline.fireChannelRead(readBuf.get(i));
                 }

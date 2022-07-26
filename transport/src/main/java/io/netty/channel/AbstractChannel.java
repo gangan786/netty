@@ -557,7 +557,12 @@ public abstract class AbstractChannel extends DefaultAttributeMap implements Cha
                 // multiple channel actives if the channel is deregistered and re-registered.
                 // 对于服务端ServerSocketChannel来说 只有绑定端口地址成功后 channel的状态才是active的。
                 // 此时绑定操作作为异步任务在Reactor的任务队列中，绑定操作还没开始，所以这里的isActive()是false
+                //
+                // 对于客户端NioSocketChannel来说 判断是否激活的标准为是否处于Connected状态，所以这里的isActive返回true
                 if (isActive()) {
+                    /**
+                     * 客户端SocketChannel注册成功后会走这里，在channelActive事件回调中注册OP_READ事件
+                     * */
                     if (firstRegistration) {
                         // 触发channelActive事件
                         pipeline.fireChannelActive();
