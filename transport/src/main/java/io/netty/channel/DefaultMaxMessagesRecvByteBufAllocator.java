@@ -94,16 +94,22 @@ public abstract class DefaultMaxMessagesRecvByteBufAllocator implements MaxMessa
         private ChannelConfig config;
         // 每次事件轮询时，最多读取16次
         private int maxMessagePerRead;
-        // 本次事件轮询总共读取的message数,这里指的是接收连接的数量
+        // 本次事件轮询总共读取的message数,
+        // 对于NioServerSocketChannel指的是接收连接的数量
+        // 对于NioSocketChannel指的是读取数据的次数
         private int totalMessages;
         // 本次事件轮询总共读取的字节数
         private int totalBytesRead;
+        //表示本次read loop 尝试读取多少字节，byteBuffer剩余可写的字节数
         private int attemptedBytesRead;
+        //本次read loop读取到的字节数
         private int lastBytesRead;
+        // 用于控制是否当读取byteBuffer满载而归的时候还要继续continueReading
         private final boolean respectMaybeMoreData = DefaultMaxMessagesRecvByteBufAllocator.this.respectMaybeMoreData;
         private final UncheckedBooleanSupplier defaultMaybeMoreSupplier = new UncheckedBooleanSupplier() {
             @Override
             public boolean get() {
+                //判断本次读取byteBuffer是否满载而归
                 return attemptedBytesRead == lastBytesRead;
             }
         };
@@ -149,6 +155,7 @@ public abstract class DefaultMaxMessagesRecvByteBufAllocator implements MaxMessa
 
         @Override
         public boolean continueReading(UncheckedBooleanSupplier maybeMoreDataSupplier) {
+            // respectMaybeMoreData在这里的作用就是控制是否要采用maybeMoreDataSupplier.get()的结果
             return config.isAutoRead() &&
                    (!respectMaybeMoreData || maybeMoreDataSupplier.get()) &&
                    totalMessages < maxMessagePerRead && (ignoreBytesRead || totalBytesRead > 0);

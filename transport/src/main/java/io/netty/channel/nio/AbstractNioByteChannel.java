@@ -135,42 +135,66 @@ public abstract class AbstractNioByteChannel extends AbstractNioChannel {
         public final void read() {
             final ChannelConfig config = config();
             if (shouldBreakReadReady(config)) {
+                // 处理半连接
                 clearReadPending();
                 return;
             }
+            // 获取NioSocketChannel的pipeline
             final ChannelPipeline pipeline = pipeline();
+
+            /**
+             * 总结一下allocator与allocHandle的关系是：
+             * allocator负责申请用于接受数据的ByteBuffer内存，
+             * allocHandle用于每次动态调整ByteBuffer的大小
+             */
+            // PooledByteBufAllocator 具体用于实际分配ByteBuf的分配器
+            // 需要与具体的ByteBuf分配器配合使用 比如这里的PooledByteBufAllocator
             final ByteBufAllocator allocator = config.getAllocator();
-            final RecvByteBufAllocator.Handle allocHandle = recvBufAllocHandle();
+            //allocHandler用于统计每次读取数据的大小，方便下次分配合适大小的ByteBuf
+            // 自适应ByteBuf分配器 AdaptiveRecvByteBufAllocator ,用于动态调节ByteBuf容量
+            final RecvByteBufAllocator.Handle allocHandle = recvBufAllocHandle();// 获得到的RecvByteBufAllocator为AdaptiveRecvByteBufAllocator
+            // 重置清除上次的统计指标
             allocHandle.reset(config);
 
             ByteBuf byteBuf = null;
             boolean close = false;
             try {
                 do {
+                    // 利用PooledByteBufAllocator分配合适大小的byteBuf 初始大小为2048
                     byteBuf = allocHandle.allocate(allocator);
+                    //读取数据、记录本次读取了多少字节数
                     allocHandle.lastBytesRead(doReadBytes(byteBuf));
                     if (allocHandle.lastBytesRead() <= 0) {
+                        // 如果本次没有读取到任何字节，则退出循环 进行下一轮事件轮询
                         // nothing was read. release the buffer.
                         byteBuf.release();
                         byteBuf = null;
                         close = allocHandle.lastBytesRead() < 0;
                         if (close) {
+                            // lastBytesRead < 0：表示客户端主动发起了连接关闭流程，Netty开始连接关闭处理流程
                             // There is nothing left to read as we received an EOF.
                             readPending = false;
                         }
+                        // lastBytesRead = 0：表示当前NioSocketChannel上的数据已经全部读取完毕，没有数据可读了。本次OP_READ事件圆满处理完毕，可以开开心心的退出read loop
                         break;
                     }
 
+                    // 记录循环次数
                     allocHandle.incMessagesRead(1);
                     readPending = false;
+                    // 触发ChannelRead事件，由对应的ChannelHandle处理改IO数据
                     pipeline.fireChannelRead(byteBuf);
-                    byteBuf = null;
-                } while (allocHandle.continueReading());
+                    byteBuf = null;// 置为null方便垃圾回收？但是已经通过事件把引用传播出去了，这可能是答案：当执行到这里的时候就跳出循环了，需要将其置为null
+                } while (allocHandle.continueReading());// 断是否应该继续read loop，默认最多循环16次
 
+                // 根据本轮read loop总共读取到的字节数totalBytesRead来决定是否对用于接收下一轮OP_READ事件数据的ByteBuffer进行扩容或者缩容
                 allocHandle.readComplete();
+                // pipeline中触发ChannelReadComplete事件,通知ChannelHandler本次OP_READ事件已经处理完毕
+                // 但这并不表示 客户端发送来的数据已经全部读完，因为如果数据太多的话，这里只会读取16次，剩下的会等到下次read事件到来后在处理
                 pipeline.fireChannelReadComplete();
 
                 if (close) {
+                    // 连接关闭处理
                     closeOnRead(pipeline);
                 }
             } catch (Throwable t) {
