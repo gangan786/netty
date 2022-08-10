@@ -88,6 +88,8 @@ abstract class AbstractChannelHandlerContext implements ChannelHandlerContext, R
     private final DefaultChannelPipeline pipeline;
     private final String name;
     private final boolean ordered;
+    // ChannelHandler执行资格掩码
+    // 可以通过这个掩码来判断当前 ChannelHandler 具有什么样的执行资格
     private final int executionMask;
 
     // Will be set to null if no child executor should be used, otherwise it will be set to the
@@ -770,6 +772,7 @@ abstract class AbstractChannelHandlerContext implements ChannelHandlerContext, R
 
     private void write(Object msg, boolean flush, ChannelPromise promise) {
         ObjectUtil.checkNotNull(msg, "msg");
+        // 对promise做有效性检查
         try {
             if (isNotValidPromise(promise, true)) {
                 ReferenceCountUtil.release(msg);
@@ -781,17 +784,27 @@ abstract class AbstractChannelHandlerContext implements ChannelHandlerContext, R
             throw e;
         }
 
+        // flush = true 表示channelHandler中调用的是writeAndFlush方法，
+        // 这里需要找到pipeline中覆盖write或者flush方法的channelHandler
+        // flush = false 表示调用的是write方法，只需要找到pipeline中覆盖write方法的channelHandler
         final AbstractChannelHandlerContext next = findContextOutbound(flush ?
                 (MASK_WRITE | MASK_FLUSH) : MASK_WRITE);
+        //用于检查内存泄露
         final Object m = pipeline.touch(msg, next);
         EventExecutor executor = next.executor();
+        // 执行 ChannelHandler 中异步事件回调方法的线程必须是 ChannelHandler 指定的executor。
         if (executor.inEventLoop()) {
+            // 如果当前线程正是channelHandler指定的executor则直接执行
             if (flush) {
                 next.invokeWriteAndFlush(m, promise);
             } else {
                 next.invokeWrite(m, promise);
             }
         } else {
+            // 如果当前线程不是ChannelHandler指定的executor,
+            // 则封装成异步任务提交给指定executor执行，注意这里的executor不一定是reactor线程。
+            // 为什么不一定是reactor线程？
+            // 在向 pipeline 添加 ChannelHandler 的时候可以通过ChannelPipeline#addLast(EventExecutorGroup,ChannelHandler......) 方法指定执行该 ChannelHandler 的executor。如果不特殊指定，那么执行该 ChannelHandler 的executor默认为该 Channel 绑定的 Reactor 线程。
             final WriteTask task = WriteTask.newInstance(next, m, promise, flush);
             if (!safeExecute(executor, task, promise, m, !flush)) {
                 // We failed to submit the WriteTask. We need to cancel it so we decrement the pending bytes
@@ -884,13 +897,24 @@ abstract class AbstractChannelHandlerContext implements ChannelHandlerContext, R
 
     private AbstractChannelHandlerContext findContextOutbound(int mask) {
         AbstractChannelHandlerContext ctx = this;
+        // 获取当前ChannelHandler的executor
         EventExecutor currentExecutor = executor();
         do {
+            //获取前一个ChannelHandler
             ctx = ctx.prev;
         } while (skipContext(ctx, currentExecutor, mask, MASK_ONLY_OUTBOUND));
         return ctx;
     }
 
+    /**
+     * 判断AbstractChannelHandlerContext是否具有响应mask事件的资格
+     *
+     * @param ctx
+     * @param currentExecutor
+     * @param mask 目标类型（指定前一个 ChannelHandler 需要实现的相关异步事件处理回调）
+     * @param onlyMask 用来指定当前 ChannelHandler 需要符合的类型
+     * @return 没资格返回true，有资格返回false跳出循环
+     */
     private static boolean skipContext(
             AbstractChannelHandlerContext ctx, EventExecutor currentExecutor, int mask, int onlyMask) {
         // Ensure we correctly handle MASK_EXCEPTION_CAUGHT which is not included in the MASK_EXCEPTION_CAUGHT
