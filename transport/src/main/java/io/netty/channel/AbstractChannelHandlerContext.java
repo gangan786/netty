@@ -299,6 +299,7 @@ abstract class AbstractChannelHandlerContext implements ChannelHandlerContext, R
     }
 
     private void invokeExceptionCaught(final Throwable cause) {
+        // 触发 exceptionCaught 事件的传播
         if (invokeHandler()) {
             try {
                 handler().exceptionCaught(this, cause);
@@ -710,21 +711,30 @@ abstract class AbstractChannelHandlerContext implements ChannelHandlerContext, R
         if (invokeHandler()) {
             invokeWrite0(msg, promise);
         } else {
+            // 当前channelHandler虽然添加到pipeline中，但是并没有调用handlerAdded
+            // 所以不能调用当前channelHandler中的回调方法，只能继续向前传递write事件
             write(msg, promise);
         }
     }
 
     private void invokeWrite0(Object msg, ChannelPromise promise) {
         try {
+            // 调用当前ChannelHandler中的write方法
             ((ChannelOutboundHandler) handler()).write(this, msg, promise);
         } catch (Throwable t) {
+            // 发生异常， write 事件就会停止在 pipeline 中传播，并通知注册的 ChannelFutureListener
             notifyOutboundHandlerException(t, promise);
         }
     }
 
     @Override
+    /**
+     * 从当前channelHandle向前传播直到headContext
+     */
     public ChannelHandlerContext flush() {
+        // 向前查找覆盖flush方法的Outbound类型的ChannelHandler
         final AbstractChannelHandlerContext next = findContextOutbound(MASK_FLUSH);
+        // 获取执行ChannelHandler的executor,在初始化pipeline的时候设置，默认为Reactor线程
         EventExecutor executor = next.executor();
         if (executor.inEventLoop()) {
             next.invokeFlush();
@@ -743,10 +753,15 @@ abstract class AbstractChannelHandlerContext implements ChannelHandlerContext, R
         if (invokeHandler()) {
             invokeFlush0();
         } else {
+            // 如果该ChannelHandler并没有加入到pipeline中则继续向前传递flush事件
             flush();
         }
     }
 
+    /**
+     * 最终 flush 事件会在 pipeline 中一直向前传播至 HeadContext 中，
+     * 并在 HeadContext 里调用 channel 的 unsafe 类完成 flush 事件的最终处理逻辑
+     */
     private void invokeFlush0() {
         try {
             ((ChannelOutboundHandler) handler()).flush(this);
@@ -985,6 +1000,7 @@ abstract class AbstractChannelHandlerContext implements ChannelHandlerContext, R
      */
     private boolean invokeHandler() {
         // Store in local variable to reduce volatile reads.
+        // 只有触发了 handlerAdded 回调，ChannelHandler 的状态才能变成 ADD_COMPLETE
         int handlerState = this.handlerState;
         return handlerState == ADD_COMPLETE || (!ordered && handlerState == ADD_PENDING);
     }

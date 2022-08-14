@@ -58,6 +58,7 @@ public class DefaultChannelPipeline implements ChannelPipeline {
         }
     };
 
+    // 原子更新estimatorHandle字段
     private static final AtomicReferenceFieldUpdater<DefaultChannelPipeline, MessageSizeEstimator.Handle> ESTIMATOR =
             AtomicReferenceFieldUpdater.newUpdater(
                     DefaultChannelPipeline.class, MessageSizeEstimator.Handle.class, "estimatorHandle");
@@ -70,6 +71,7 @@ public class DefaultChannelPipeline implements ChannelPipeline {
     private final boolean touch = ResourceLeakDetector.isEnabled();
 
     private Map<EventExecutorGroup, EventExecutor> childExecutors;
+    //计算要发送msg大小的handler
     private volatile MessageSizeEstimator.Handle estimatorHandle;
     private boolean firstRegistration = true;
 
@@ -1365,6 +1367,15 @@ public class DefaultChannelPipeline implements ChannelPipeline {
             unsafe.beginRead();
         }
 
+        /**
+         * write 事件最终会在 pipeline 中传播到 HeadContext 里并回调 HeadContext 的 write 方法。
+         * 并在 write 回调中调用 channel 的 unsafe 类执行底层的 write 操作。
+         * 这里正是 write 事件在 pipeline 中的传播终点。
+         *
+         * @param ctx               the {@link ChannelHandlerContext} for which the write operation is made
+         * @param msg               the message to write
+         * @param promise           the {@link ChannelPromise} to notify once the operation completes
+         */
         @Override
         public void write(ChannelHandlerContext ctx, Object msg, ChannelPromise promise) {
             unsafe.write(msg, promise);
