@@ -169,6 +169,7 @@ public abstract class AbstractNioByteChannel extends AbstractNioChannel {
                         // nothing was read. release the buffer.
                         byteBuf.release();
                         byteBuf = null;
+                        // 当客户端主动关闭连接时（客户端发送fin1），会触发read就绪事件，这里从channel读取的数据会是-1，此时服务器的状态是CLOSE_WAIT，客户端的状态是FIN_WAIT2
                         close = allocHandle.lastBytesRead() < 0;
                         if (close) {
                             // lastBytesRead < 0：表示客户端主动发起了连接关闭流程，Netty开始连接关闭处理流程
@@ -195,6 +196,8 @@ public abstract class AbstractNioByteChannel extends AbstractNioChannel {
 
                 if (close) {
                     // 连接关闭处理
+                    // 此时客户端发送fin1（fin_wait_1状态）主动关闭连接，服务端接收到fin，并回复ack进入close_wait状态
+                    // 在服务端进入close_wait状态 需要调用close 方法向客户端发送fin，服务端才能结束close_wait状态
                     closeOnRead(pipeline);
                 }
             } catch (Throwable t) {

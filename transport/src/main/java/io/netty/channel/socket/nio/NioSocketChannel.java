@@ -354,6 +354,8 @@ public class NioSocketChannel extends AbstractNioByteChannel implements io.netty
     protected int doReadBytes(ByteBuf byteBuf) throws Exception {
         final RecvByteBufAllocator.Handle allocHandle = unsafe().recvBufAllocHandle();
         allocHandle.attemptedBytesRead(byteBuf.writableBytes());
+        // 当服务端的内核协议栈接收到来自客户端的 FIN 包后，内核协议栈会向 Socket 的接收缓冲区插入文件结束符 EOF ，表示客户端已经主动发起了关闭连接流程
+        // 读到EOF后，这里会返回-1
         return byteBuf.writeBytes(javaChannel(), allocHandle.attemptedBytesRead());
     }
 

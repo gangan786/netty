@@ -853,7 +853,7 @@ public final class NioEventLoop extends SingleThreadEventLoop {
             // Also check for readOps of 0 to workaround possible JDK bug which may otherwise lead
             // to a spin loop
             if ((readyOps & (SelectionKey.OP_READ | SelectionKey.OP_ACCEPT)) != 0 || readyOps == 0) {
-                // 处理Read事件或者Accept事件
+                // 处理Read事件或者Accept事件，或者连接关闭事件（Netty对于关闭连接的响应是通过处理OP_READ事件完成的）
                 // 服务端NioServerSocketChannel中的Read方法处理的是Accept事件
                 // 客户端NioSocketChannel中的Read方法处理的是Read事件
                 unsafe.read();
