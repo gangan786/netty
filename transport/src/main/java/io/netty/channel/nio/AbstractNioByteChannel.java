@@ -97,11 +97,16 @@ public abstract class AbstractNioByteChannel extends AbstractNioChannel {
     protected class NioByteUnsafe extends AbstractNioUnsafe {
 
         private void closeOnRead(ChannelPipeline pipeline) {
+            // 这里的 isInputShutdown0 方法是用来判断 TCP 连接上的读通道是否关闭，这里肯定是没有关闭的，
+            // 因为从io.netty.channel.nio.AbstractNioByteChannel.NioByteUnsafe.read方法进来的时候，Netty还没调用任何关闭连接的系统调用
             if (!isInputShutdown0()) {
                 if (isAllowHalfClosure(config())) {
+                    // TCP半连接关闭处理
                     shutdownInput();
                     pipeline.fireUserEventTriggered(ChannelInputShutdownEvent.INSTANCE);
                 } else {
+                    // 如果不支持半关闭，则服务端直接调用close方法向客户端发送fin,结束close_wait状态进如last_ack状态
+                    // VoidChannelPromise表示调用方对处理结果不关心
                     close(voidPromise());
                 }
             } else {

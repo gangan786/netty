@@ -61,12 +61,16 @@ public abstract class AbstractChannel extends DefaultAttributeMap implements Cha
      */
     private final DefaultChannelPipeline pipeline;
     private final VoidChannelPromise unsafeVoidPromise = new VoidChannelPromise(this, false);
+
+    // 关闭channel操作的指定future，来判断关闭流程进度 每个channel对应一个CloseFuture
+    // 连接关闭之后，netty 会通知这个CloseFuture
     private final CloseFuture closeFuture = new CloseFuture(this);
 
     private volatile SocketAddress localAddress;
     private volatile SocketAddress remoteAddress;
     private volatile EventLoop eventLoop;
     private volatile boolean registered;
+    // channel的关闭流程是否已经开始
     private boolean closeInitiated;
     private Throwable initialCloseCause;
 
@@ -671,8 +675,14 @@ public abstract class AbstractChannel extends DefaultAttributeMap implements Cha
         public void close(final ChannelPromise promise) {
             assertEventLoop();
 
+            /**
+             * 当 Channel 关闭之后，需要清理 Channel 写入缓冲队列 ChannelOutboundBuffer 中的待发送数据，
+             * 这里会将异常 cause 传递给用户的 writePromise ，通知用户 Channel 已经关闭，write 操作失败。
+             * 这里传入的异常类型为 StacklessClosedChannelException
+             */
             ClosedChannelException closedChannelException =
                     StacklessClosedChannelException.newInstance(AbstractChannel.class, "close(ChannelPromise)");
+            // notify = false: 由于当前是关闭操作，所以 notify = false ，不需要触发 ChannelWritabilityChanged 事件
             close(promise, closedChannelException, closedChannelException, false);
         }
 
@@ -730,18 +740,35 @@ public abstract class AbstractChannel extends DefaultAttributeMap implements Cha
             pipeline.fireUserEventTriggered(ChannelOutputShutdownEvent.INSTANCE);
         }
 
+        /**
+         *
+         * @param promise 服务端作为被动关闭方，这里传入的 ChannelPromise 类型为 VoidChannelPromise ，
+         *                表示调用方对处理结果并不关心，VoidChannelPromise 不可添加 Listener ，不可修改操作结果状态
+         * @param cause 将连接关闭的异常通知给 Channel 发送数据缓冲队列 ChannelOutboundBuffer 中的 flushedEntry 队列
+         * @param closeCause 将连接关闭的异常通知给 ChannelOutboundBuffer 中的 unflushedEntry 队列
+         * @param notify 由于在关闭 Channel 之后，会清理 Channel 对应的发送缓冲队列 ChannelOutboundBuffer 中存储的待发送数据，
+         *               同时也会释放其中用于存储待发送数据用的 ByteBuffer ，当 ChannelOutboundBuffer 中的内存占用低于低水位线的时候，
+         *               会触发 ChannelWritabilityChanged 事件。这里的参数 boolean notify 决定是否触发 ChannelWritabilityChanged 事件
+         */
         private void close(final ChannelPromise promise, final Throwable cause,
                            final ClosedChannelException closeCause, final boolean notify) {
             if (!promise.setUncancellable()) {
+                // 关闭操作如果被取消则直接返回
                 return;
             }
 
+            // 由于本close()方法的上游存在assertEventLoop()判断，即该变量只会被同一个线程操作，
+            // 所以closeInitiated并不需要使用volatile保证可见性
             if (closeInitiated) {
+                // 如果此时channel已经开始关闭流程，则进入这里
                 if (closeFuture.isDone()) {
                     // Closed already.
+                    // 如果channel已经关闭 则设置promise为success，如果promise是voidPromise类型则会跳过
                     safeSetSuccess(promise);
                 } else if (!(promise instanceof VoidChannelPromise)) { // Only needed if no VoidChannelPromise.
                     // This means close() was called before so we just register a listener and return
+                    // 如果promise不是voidPromise，则会在关闭完成后 通过closeFuture设置promise success，
+                    // 比如客户端主动调用 ctx.channel().close()，则这里的promise不是VoidChannelPromise
                     closeFuture.addListener(new ChannelFutureListener() {
                         @Override
                         public void operationComplete(ChannelFuture future) throws Exception {
@@ -752,29 +779,45 @@ public abstract class AbstractChannel extends DefaultAttributeMap implements Cha
                 return;
             }
 
+            // 当前channel现在开始进入正在关闭状态
             closeInitiated = true;
 
+            // 当前channel是否active
             final boolean wasActive = isActive();
             final ChannelOutboundBuffer outboundBuffer = this.outboundBuffer;
+            // 将channel对应的写缓冲区channelOutboundBuffer设置为null 表示channel要关闭了，不允许继续发送数据
+            // 此时如果还在write数据，则直接释放bytebuffer，并立马 fail 相关writeFuture 并抛出newClosedChannelException异常
+            // 此时如果执行flush，则会直接返回
             this.outboundBuffer = null; // Disallow adding any messages and flushes to outboundBuffer.
+            // 如果开启了SO_LINGER，则需要先将channel从reactor中取消掉。避免reactor线程空转浪费cpu
             Executor closeExecutor = prepareToClose();
             if (closeExecutor != null) {
+                // 当我们开启了 SO_LINGER 选项时，closeExecutor = GlobalEventExecutor.INSTANCE ，
+                // 避免了 Reactor 线程的阻塞。
                 closeExecutor.execute(new Runnable() {
                     @Override
                     public void run() {
                         try {
+                            // 在GlobalEventExecutor中执行channel的关闭任务,设置closeFuture,promise success
                             // Execute the close.
                             doClose0(promise);
                         } finally {
+                            // reactor线程中执行
                             // Call invokeLater so closeAndDeregister is executed in the EventLoop again!
                             invokeLater(new Runnable() {
                                 @Override
                                 public void run() {
                                     if (outboundBuffer != null) {
                                         // Fail all the queued messages
+                                        // cause = closeCause = ClosedChannelException, notify = false
+                                        // 此时channel已经关闭，需要清理对应channelOutboundBuffer中的待发送数据flushedEntry
                                         outboundBuffer.failFlushed(cause, notify);
+                                        // 循环清理channelOutboundBuffer中的unflushedEntry
                                         outboundBuffer.close(closeCause);
                                     }
+                                    //这里的active = true
+                                    // 关闭channel后，会将channel从reactor中注销，
+                                    // 首先触发ChannelInactive事件，然后触发ChannelUnregistered
                                     fireChannelInactiveAndDeregister(wasActive);
                                 }
                             });
@@ -782,6 +825,7 @@ public abstract class AbstractChannel extends DefaultAttributeMap implements Cha
                     }
                 });
             } else {
+                // 由当前的reactor线程执行关闭任务
                 try {
                     // Close the channel and fail the queued messages in all cases.
                     doClose0(promise);
@@ -807,11 +851,16 @@ public abstract class AbstractChannel extends DefaultAttributeMap implements Cha
 
         private void doClose0(ChannelPromise promise) {
             try {
+                // 关闭channel，此时服务端向客户端发送fin2，服务端进入last_ack状态，客户端收到fin2进入time_wait状态
                 doClose();
+                // 设置clostFuture的状态为success，表示channel已经关闭
+                // 调用shutdownOutput则不会通知closeFuture
                 closeFuture.setClosed();
+                // 通知用户promise success,关闭操作已经完成
                 safeSetSuccess(promise);
             } catch (Throwable t) {
                 closeFuture.setClosed();
+                // 通知用户线程关闭失败
                 safeSetFailure(promise, t);
             }
         }
@@ -907,6 +956,8 @@ public abstract class AbstractChannel extends DefaultAttributeMap implements Cha
             //获取当前channel对应的待发送数据缓冲队列（支持用户异步写入的核心关键）
             ChannelOutboundBuffer outboundBuffer = this.outboundBuffer;
             if (outboundBuffer == null) {
+                // outboundBuffer == null说明channel准备关闭了，直接标记发送失败。
+                // 在Channel准备关闭的时候，会将outboundBuffer = null
                 try {
                     // release message now to prevent resource-leak
                     ReferenceCountUtil.release(msg);
@@ -947,7 +998,7 @@ public abstract class AbstractChannel extends DefaultAttributeMap implements Cha
             assertEventLoop();
 
             ChannelOutboundBuffer outboundBuffer = this.outboundBuffer;
-            // channel已经关闭
+            // channel已经关闭，在Channel准备关闭的时候，会将outboundBuffer = null
             if (outboundBuffer == null) {
                 return;
             }

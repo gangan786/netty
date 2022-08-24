@@ -347,6 +347,7 @@ public class NioSocketChannel extends AbstractNioByteChannel implements io.netty
     @Override
     protected void doClose() throws Exception {
         super.doClose();
+        // 关闭底层 JDK 中的 SocketChannel
         javaChannel().close();
     }
 
@@ -494,7 +495,15 @@ public class NioSocketChannel extends AbstractNioByteChannel implements io.netty
                     // because we try to read or write until the actual close happens which may be later due
                     // SO_LINGER handling.
                     // See https://github.com/netty/netty/issues/4449
+                    // 在设置SO_LINGER后，channel会延时关闭，在延时期间我们仍然可以进行读写，
+                    // 这样会导致io线程eventloop不断的循环浪费cpu资源
+                    // 所以需要在延时关闭期间 将channel注册的事件全部取消。
                     doDeregister();
+                    /**
+                     * 设置了SO_LINGER,不管是阻塞socket还是非阻塞socket，
+                     * 在关闭的时候都会发生阻塞，所以这里不能使用Reactor线程来
+                     * 执行关闭任务，否则Reactor线程就会被阻塞。
+                     * */
                     return GlobalEventExecutor.INSTANCE;
                 }
             } catch (Throwable ignore) {
@@ -502,6 +511,7 @@ public class NioSocketChannel extends AbstractNioByteChannel implements io.netty
                 // getSoLinger() may produce an exception. In this case we just return null.
                 // See https://github.com/netty/netty/issues/4449
             }
+            // 在没有设置SO_LINGER的情况下，可以使用Reactor线程来执行关闭任务
             return null;
         }
     }
