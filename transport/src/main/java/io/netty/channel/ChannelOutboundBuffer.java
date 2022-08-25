@@ -684,6 +684,8 @@ public final class ChannelOutboundBuffer {
         try {
             inFail = true;
             for (;;) {
+                // 循环清除channelOutboundBuffer中的待发送数据
+                // 将entry从buffer中删除，并释放entry中的bytebuffer，通知promise failed
                 if (!remove0(cause, notify)) {
                     break;
                 }
@@ -718,12 +720,15 @@ public final class ChannelOutboundBuffer {
         try {
             Entry e = unflushedEntry;
             while (e != null) {
+                // 循环清理channelOutboundBuffer中的unflushedEntry
                 // Just decrease; do not trigger any events via decrementPendingOutboundBytes()
                 int size = e.pendingSize;
                 TOTAL_PENDING_SIZE_UPDATER.addAndGet(this, -size);
 
                 if (!e.cancelled) {
+                    // 释放unflushedEntry中的bytebuffer
                     ReferenceCountUtil.safeRelease(e.msg);
+                    // 通知unflushedEntry中的promise failed
                     safeFail(e.promise, cause);
                 }
                 e = e.recycleAndGetNext();
@@ -731,6 +736,7 @@ public final class ChannelOutboundBuffer {
         } finally {
             inFail = false;
         }
+        // 清理channel用于缓存JDK nioBuffer的 threadLocal缓存NIO_BUFFERS
         clearNioBuffers();
     }
 

@@ -706,11 +706,13 @@ public abstract class AbstractChannel extends DefaultAttributeMap implements Cha
                 return;
             }
 
+            // 如果Channel已经close了，直接返回
             final ChannelOutboundBuffer outboundBuffer = this.outboundBuffer;
             if (outboundBuffer == null) {
                 promise.setFailure(new ClosedChannelException());
                 return;
             }
+            // 主动关闭方连接的写通道被关闭，不允许继续写入数据到Socket
             this.outboundBuffer = null; // Disallow adding any messages and flushes to outboundBuffer.
 
             final Throwable shutdownCause = cause == null ?
@@ -735,8 +737,11 @@ public abstract class AbstractChannel extends DefaultAttributeMap implements Cha
 
         private void closeOutboundBufferForShutdown(
                 ChannelPipeline pipeline, ChannelOutboundBuffer buffer, Throwable cause) {
+            // shutdownOutput半关闭后需要清理channelOutboundBuffer中的待发送数据flushedEntry
             buffer.failFlushed(cause, false);
+            // 循环清理channelOutboundBuffer中的unflushedEntry
             buffer.close(cause, true);
+            // pipeline 中传播 ChannelOutputShutdownEvent 事件
             pipeline.fireUserEventTriggered(ChannelOutputShutdownEvent.INSTANCE);
         }
 
@@ -800,6 +805,7 @@ public abstract class AbstractChannel extends DefaultAttributeMap implements Cha
                         try {
                             // 在GlobalEventExecutor中执行channel的关闭任务,设置closeFuture,promise success
                             // Execute the close.
+                            // 假如开启了SO_LINGER，在prepareToClose中对SelectionKey进行了java.nio.channels.SelectionKey.cancel()操作，在这里doClose0()也有cancel()操作，他两有什么不一样，为什么要cancel两次？
                             doClose0(promise);
                         } finally {
                             // reactor线程中执行
@@ -832,8 +838,15 @@ public abstract class AbstractChannel extends DefaultAttributeMap implements Cha
                 } finally {
                     if (outboundBuffer != null) {
                         // Fail all the queued messages.
+                        // 清理channelOutboundBuffer中的flushedEntry到tailEntry之间的未发送&已发送数据
                         outboundBuffer.failFlushed(cause, notify);
+                        // 清理channelOutboundBuffer中的unflushedEntry到tailEntry之间的未发送数据
                         outboundBuffer.close(closeCause);
+                        /**
+                         * 在关闭 Channel 之前，用户可能还会向 ChannelOutboundBuffer 中 write 数据，但还未来得及调用 flush 操作，
+                         * 这就导致了 ChannelOutboundBuffer 中在 unflushedEntry 指针与 tailEntry 指针之间还可能会有数据。
+                         * 所以需要再次调用outboundBuffer.close(closeCause)把这部分数据清理
+                         */
                     }
                 }
                 if (inFlush0) {
@@ -866,6 +879,7 @@ public abstract class AbstractChannel extends DefaultAttributeMap implements Cha
         }
 
         private void fireChannelInactiveAndDeregister(final boolean wasActive) {
+            // wasActive && !isActive() 条件表示 channel的状态第一次从active变为 inactive
             deregister(voidPromise(), wasActive && !isActive());
         }
 
@@ -903,18 +917,23 @@ public abstract class AbstractChannel extends DefaultAttributeMap implements Cha
             // the old EventLoop while the user already registered the Channel to a new EventLoop. Without delay,
             // the deregister operation this could lead to have a handler invoked by different EventLoop and so
             // threads.
-            //
+            // 上面的注释解释了为什么要提交到EventLoop延后执行deregister操作
+            // 另外一个说法：这里延后 deRegister 操作的原因是用于处理一种极端的异常情况，前边我们提到 Channel 的 deregister() 操作是可以在用户的 ChannelHandler 中执行的，用户行为是不可预知的。
+            // 我们想象一下这样的一个场景：假如当前 pipeline 中还有事件传播（比如正在处理编码解码），与此同时 deregister() 方法可能会在某个事件回调中被用户调用，导致其它事件在传播的过程中，Channel 被从 Reactor 上注销掉了。
+            // 并且同时 channel 又注册到新的 Reactor 上。如果此时旧的 Reactor 正在处理 pipeline 上的事件而旧 Reactor 还未处理完的数据理应继续在旧的 Reactor 中处理，如果此时我们立马执行 deRegister ，未处理完的数据就会在新的 Reactor 上处理，这样就会导致一个 handler 被多个 Reactor 线程处理导致线程安全问题。所以需要延后 deRegister 的操作。
             // See:
             // https://github.com/netty/netty/issues/4435
             invokeLater(new Runnable() {
                 @Override
                 public void run() {
                     try {
+                        // 将channel从reactor中注销，reactor不在监听channel上的事件
                         doDeregister();
                     } catch (Throwable t) {
                         logger.warn("Unexpected exception occurred while deregistering a channel.", t);
                     } finally {
                         if (fireChannelInactive) {
+                            // 当channel被关闭后，触发ChannelInactive事件
                             pipeline.fireChannelInactive();
                         }
                         // Some transports like local and AIO does not allow the deregistration of
@@ -922,9 +941,12 @@ public abstract class AbstractChannel extends DefaultAttributeMap implements Cha
                         // close() calls deregister() again - no need to fire channelUnregistered, so check
                         // if it was registered.
                         if (registered) {
+                            // 如果channel没有注册，则不需要触发ChannelUnregistered
                             registered = false;
+                            // 随后触发ChannelUnregistered
                             pipeline.fireChannelUnregistered();
                         }
+                        // 通知deRegisterPromise
                         safeSetSuccess(promise);
                     }
                 }

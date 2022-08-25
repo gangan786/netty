@@ -282,6 +282,7 @@ public class NioSocketChannel extends AbstractNioByteChannel implements io.netty
     @SuppressJava6Requirement(reason = "Usage guarded by java version check")
     private void shutdownInput0() throws Exception {
         if (PlatformDependent.javaVersion() >= 7) {
+            // 调用底层JDK socketChannel关闭接收方向的通道
             javaChannel().shutdownInput();
         } else {
             javaChannel().socket().shutdownInput();
