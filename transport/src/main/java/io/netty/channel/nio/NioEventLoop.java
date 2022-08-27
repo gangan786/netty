@@ -618,9 +618,15 @@ public final class NioEventLoop extends SingleThreadEventLoop {
             } finally {
                 // Always handle shutdown even if the loop processing threw an exception.
                 try {
+                    // 判断当前Reactor是否被调用shutdownGracefully处于关闭的状态
                     if (isShuttingDown()) {
+                        // 关闭Reactor上注册的所有Channel,停止处理IO事件，触发unActive以及unRegister事件
                         closeAll();
+                        // 注销掉所有Channel停止处理IO事件之后，剩下的就需要执行Reactor中剩余的异步任务了
                         if (confirmShutdown()) {
+                            // confirmShutdown() 方法，将剩余的异步任务执行完毕。
+                            // 在该方法中只要有异步任务需要执行，就不能关闭，保证业务无损。
+                            // 该方法返回值为 true 时表示可以进行关闭。返回 false 时表示不能马上关闭。
                             return;
                         }
                     }
@@ -890,10 +896,13 @@ public final class NioEventLoop extends SingleThreadEventLoop {
     }
 
     private void closeAll() {
+        // 这里的目的是清理selector中的一些无效key
         selectAgain();
+        // 获取Selector上注册的所有Channel
         Set<SelectionKey> keys = selector.keys();
         Collection<AbstractNioChannel> channels = new ArrayList<AbstractNioChannel>(keys.size());
         for (SelectionKey k: keys) {
+            // 获取NioSocketChannel
             Object a = k.attachment();
             if (a instanceof AbstractNioChannel) {
                 channels.add((AbstractNioChannel) a);
@@ -906,6 +915,7 @@ public final class NioEventLoop extends SingleThreadEventLoop {
         }
 
         for (AbstractNioChannel ch: channels) {
+            // 关闭Reactor上注册的所有Channel，并在pipeline中触发unActive事件和unRegister事件
             ch.unsafe().close(ch.unsafe().voidPromise());
         }
     }
