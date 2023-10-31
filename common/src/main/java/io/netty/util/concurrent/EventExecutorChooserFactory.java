@@ -19,6 +19,9 @@ import io.netty.util.internal.UnstableApi;
 
 /**
  * Factory that creates new {@link EventExecutorChooser}s.
+ * 当客户端连接完成三次握手后，Main Reactor会创建客户端连接NioSocketChannel，
+ * 并将其绑定到Sub Reactor Group中的一个固定Reactor，那么具体要绑定到哪个Sub Reactor上呢？
+ * 这个绑定策略就是由chooserFactory来创建的。默认为DefaultEventExecutorChooserFactory。
  */
 @UnstableApi
 public interface EventExecutorChooserFactory {
@@ -36,6 +39,7 @@ public interface EventExecutorChooserFactory {
 
         /**
          * Returns the new {@link EventExecutor} to use.
+         * 选择一个EventExecutor用于绑定Channel
          */
         EventExecutor next();
     }

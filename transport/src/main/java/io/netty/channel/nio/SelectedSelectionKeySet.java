@@ -23,7 +23,13 @@ import java.util.NoSuchElementException;
 
 final class SelectedSelectionKeySet extends AbstractSet<SelectionKey> {
 
+    /**
+     * 采用数组替换到JDK中的HashSet,这样add操作和遍历操作效率更高，不需要考虑hash冲突
+     */
     SelectionKey[] keys;
+    /**
+     * 数组尾部指针
+     */
     int size;
 
     SelectedSelectionKeySet() {
@@ -35,7 +41,8 @@ final class SelectedSelectionKeySet extends AbstractSet<SelectionKey> {
         if (o == null) {
             return false;
         }
-
+        // 对比原生的HashSet，通过数组尾部指针size，在向数组插入元素的时候可以直接定位到插入位置keys[size++]。
+        // 操作一步到位，不用像哈希表那样还需要解决Hash冲突
         keys[size++] = o;
         if (size == keys.length) {
             increaseCapacity();
@@ -61,6 +68,8 @@ final class SelectedSelectionKeySet extends AbstractSet<SelectionKey> {
 
     @Override
     public Iterator<SelectionKey> iterator() {
+        // 对比原生的HashSet，CPU 直接可以在缓存行中遍历读取数组元素无需访问内存
+        // 比HashSet的迭代器java.util.HashMap.KeyIterator 遍历方式性能不知高到哪里去了
         return new Iterator<SelectionKey>() {
             private int idx;
 

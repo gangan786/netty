@@ -32,7 +32,9 @@ public final class DefaultEventExecutorChooserFactory implements EventExecutorCh
 
     @Override
     public EventExecutorChooser newChooser(EventExecutor[] executors) {
+        // 判断 Reactor 线程组中的Reactor个数是否为2的次幂
         if (isPowerOfTwo(executors.length)) {
+            // &位运算更高效
             return new PowerOfTwoEventExecutorChooser(executors);
         } else {
             return new GenericEventExecutorChooser(executors);

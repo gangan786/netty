@@ -61,6 +61,11 @@ public final class NioEventLoop extends SingleThreadEventLoop {
 
     private static final int CLEANUP_INTERVAL = 256; // XXX Hard-coded value, but won't need customization.
 
+    /**
+     * 表示是否对jdk原生的Selector进行优化
+     * 默认是false，表示需要优化
+     * 为了遍历的效率 会对Selector中的SelectedKeys进行数据结构优化
+     */
     private static final boolean DISABLE_KEY_SET_OPTIMIZATION =
             SystemPropertyUtil.getBoolean("io.netty.noKeySetOptimization", false);
 
@@ -114,11 +119,25 @@ public final class NioEventLoop extends SingleThreadEventLoop {
 
     /**
      * The NIO {@link Selector}.
+     * 保存装饰后的Selector实现：SelectedSelectionKeySetSelector
      */
     private Selector selector;
+    /**
+     * 被优化后的JDK原生的Selector
+     */
     private Selector unwrappedSelector;
+    /**
+     * 保存sun.nio.ch.SelectorImpl类中
+     * selectedKeys和publicSelectedKeys关联好的 Netty 优化实现SelectedSelectionKeySet
+     * 后续就可以直接从这个变量中获取IO就绪的SocketChannel
+     */
     private SelectedSelectionKeySet selectedKeys;
 
+    /**
+     * SelectorProvider会根据操作系统的不同，
+     * 选择JDK在不同操作系统版本下的对应Selector的实现。
+     * Linux下会选择Epoll，Mac下会选择Kqueue。
+     */
     private final SelectorProvider provider;
 
     private static final long AWAKE = -1L;
@@ -161,7 +180,11 @@ public final class NioEventLoop extends SingleThreadEventLoop {
     }
 
     private static final class SelectorTuple {
+        /**
+         * 被 Netty 优化过的 JDK NIO 原生 Selector
+         */
         final Selector unwrappedSelector;
+
         final Selector selector;
 
         SelectorTuple(Selector unwrappedSelector) {
@@ -175,15 +198,27 @@ public final class NioEventLoop extends SingleThreadEventLoop {
         }
     }
 
+    /**
+     * 此函数主要用于Selector创建
+     * 和对JDK原生的Selector中用于保存IO就绪的数据结构做优化：publicSelectedKeys和selectedKeys
+     * 为什么：涉及publicSelectedKeys和selectedKeys的主要有两种操作类型：插入、遍历
+     * 原生的publicSelectedKeys和selectedKeys是由HashSet实现，通过数组替换HashSet实现优化的目的
+     * 由于Hash冲突这种情况的存在，所以导致对哈希表进行插入和遍历操作的性能不如对数组进行插入和遍历操作的性能好
+     * 而且数组可以利用 CPU 缓存的优势来提高遍历的效率
+     *
+     * @return
+     */
     private SelectorTuple openSelector() {
         final Selector unwrappedSelector;
         try {
+            // 通过SelectorProvider#openSelector创建JDK NIO原生的Selector。
             unwrappedSelector = provider.openSelector();
         } catch (IOException e) {
             throw new ChannelException("failed to open a new selector", e);
         }
 
         if (DISABLE_KEY_SET_OPTIMIZATION) {
+            // 不需要优化Selector，直接返回Java原生的Selector：unwrappedSelector
             return new SelectorTuple(unwrappedSelector);
         }
 
@@ -201,10 +236,15 @@ public final class NioEventLoop extends SingleThreadEventLoop {
             }
         });
 
+        // 判断由SelectorProvider创建出来的Selector是否是 JDK NIO 原生的Selector实现。
+        // 因为 Netty 优化针对的是 JDK NIO 原生Selector。
+        // 判断标准为sun.nio.ch.SelectorImpl类是否为SelectorProvider创建出Selector的父类。
+        // 如果不是则直接返回。不再继续下面的优化过程。
         if (!(maybeSelectorImplClass instanceof Class) ||
             // ensure the current selector implementation is what we can instrument.
             !((Class<?>) maybeSelectorImplClass).isAssignableFrom(unwrappedSelector.getClass())) {
             if (maybeSelectorImplClass instanceof Throwable) {
+                // Throwable的判断来自maybeSelectorImplClass创建异常
                 Throwable t = (Throwable) maybeSelectorImplClass;
                 logger.trace("failed to instrument a special java.util.Set into: {}", unwrappedSelector, t);
             }
@@ -212,15 +252,17 @@ public final class NioEventLoop extends SingleThreadEventLoop {
         }
 
         final Class<?> selectorImplClass = (Class<?>) maybeSelectorImplClass;
+        // 用于代替SelectImpl里的publicSelectedKeys和selectedKeys（用于保存事件就绪的Channel）
         final SelectedSelectionKeySet selectedKeySet = new SelectedSelectionKeySet();
 
         Object maybeException = AccessController.doPrivileged(new PrivilegedAction<Object>() {
             @Override
             public Object run() {
                 try {
+                    // 反射获取sun.nio.ch.SelectorImpl类中selectedKeys和publicSelectedKeys
                     Field selectedKeysField = selectorImplClass.getDeclaredField("selectedKeys");
                     Field publicSelectedKeysField = selectorImplClass.getDeclaredField("publicSelectedKeys");
-
+                    // 对SelectImpl里的publicSelectedKeys和selectedKeys的进行替换优化
                     if (PlatformDependent.javaVersion() >= 9 && PlatformDependent.hasUnsafe()) {
                         // Let us try to use sun.misc.Unsafe to replace the SelectionKeySet.
                         // This allows us to also do this in Java9+ without any extra flags.
@@ -229,6 +271,7 @@ public final class NioEventLoop extends SingleThreadEventLoop {
                                 PlatformDependent.objectFieldOffset(publicSelectedKeysField);
 
                         if (selectedKeysFieldOffset != -1 && publicSelectedKeysFieldOffset != -1) {
+                            // Java9版本以上通过sun.misc.Unsafe设置字段值的方式
                             PlatformDependent.putObject(
                                     unwrappedSelector, selectedKeysFieldOffset, selectedKeySet);
                             PlatformDependent.putObject(
@@ -237,7 +280,7 @@ public final class NioEventLoop extends SingleThreadEventLoop {
                         }
                         // We could not retrieve the offset, lets try reflection as last-resort.
                     }
-
+                    // Java8反射替换字段
                     Throwable cause = ReflectionUtil.trySetAccessible(selectedKeysField, true);
                     if (cause != null) {
                         return cause;
@@ -264,6 +307,7 @@ public final class NioEventLoop extends SingleThreadEventLoop {
             logger.trace("failed to instrument a special java.util.Set into: {}", unwrappedSelector, e);
             return new SelectorTuple(unwrappedSelector);
         }
+        // 将优化后并关联了SelectImpl的SelectedSelectionKeySet，赋值给本NioEventLoop对象的成员变量selectedKeys
         selectedKeys = selectedKeySet;
         logger.trace("instrumented a special java.util.Set into: {}", unwrappedSelector);
         return new SelectorTuple(unwrappedSelector,
@@ -284,6 +328,7 @@ public final class NioEventLoop extends SingleThreadEventLoop {
 
     private static Queue<Runnable> newTaskQueue0(int maxPendingTasks) {
         // This event loop never calls takeTask()
+        // 带maxPendingTasks参数的为有界队列，否则为无界队列
         return maxPendingTasks == Integer.MAX_VALUE ? PlatformDependent.<Runnable>newMpscQueue()
                 : PlatformDependent.<Runnable>newMpscQueue(maxPendingTasks);
     }

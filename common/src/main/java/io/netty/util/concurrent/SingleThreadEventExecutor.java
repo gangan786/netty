@@ -183,11 +183,17 @@ public abstract class SingleThreadEventExecutor extends AbstractScheduledEventEx
     protected SingleThreadEventExecutor(EventExecutorGroup parent, Executor executor,
                                         boolean addTaskWakesUp, Queue<Runnable> taskQueue,
                                         RejectedExecutionHandler rejectedHandler) {
+        // parent为Reactor所属的NioEventLoopGroup Reactor线程组
         super(parent);
+        // 向Reactor添加任务时，是否唤醒Selector停止轮询IO就绪事件，马上执行异步任务
         this.addTaskWakesUp = addTaskWakesUp;
+        // Reactor异步任务队列的大小
         this.maxPendingTasks = DEFAULT_MAX_PENDING_EXECUTOR_TASKS;
+        // 用于驱动Reactor线程的executor -> ThreadPerTaskExecutor
         this.executor = ThreadExecutorMap.apply(executor, this);
+        // 普通任务队列
         this.taskQueue = ObjectUtil.checkNotNull(taskQueue, "taskQueue");
+        // 任务队列满时的拒绝策略
         this.rejectedExecutionHandler = ObjectUtil.checkNotNull(rejectedHandler, "rejectedHandler");
     }
 

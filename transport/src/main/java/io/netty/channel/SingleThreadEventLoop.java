@@ -34,9 +34,15 @@ import java.util.concurrent.ThreadFactory;
  */
 public abstract class SingleThreadEventLoop extends SingleThreadEventExecutor implements EventLoop {
 
+    /**
+     * 指定任务队列大小，默认是无界队列
+     */
     protected static final int DEFAULT_MAX_PENDING_TASKS = Math.max(16,
             SystemPropertyUtil.getInt("io.netty.eventLoop.maxPendingTasks", Integer.MAX_VALUE));
 
+    /**
+     * 尾部任务队列 执行一些统计任务 不常用
+     */
     private final Queue<Runnable> tailTasks;
 
     protected SingleThreadEventLoop(EventLoopGroup parent, ThreadFactory threadFactory, boolean addTaskWakesUp) {

@@ -35,9 +35,13 @@ public abstract class MultithreadEventExecutorGroup extends AbstractEventExecuto
     // Reactor线程组中的Reactor集合
     private final EventExecutor[] children;
     private final Set<EventExecutor> readonlyChildren;
+    /**
+     * 记录已经关闭的Reactor个数，用来判断NioEventLoopGroup中的Reactor是否已经全部关闭
+     */
     private final AtomicInteger terminatedChildren = new AtomicInteger();
-    // 关闭future
+    // EventLoopGroup的关闭future，回调成功的时候，说明所有EventLoop都关闭成功了
     private final Promise<?> terminationFuture = new DefaultPromise(GlobalEventExecutor.INSTANCE);
+    // 从Reactor group中选择一个特定的Reactor的选择策略 用于channel注册绑定到一个固定的Reactor上
     private final EventExecutorChooserFactory.EventExecutorChooser chooser;
 
     /**
@@ -75,14 +79,17 @@ public abstract class MultithreadEventExecutorGroup extends AbstractEventExecuto
         checkPositive(nThreads, "nThreads");
 
         if (executor == null) {
+            // 用于创建Reactor线程
             executor = new ThreadPerTaskExecutor(newDefaultThreadFactory());
         }
 
         children = new EventExecutor[nThreads];
 
+        // 循环创建reaactor group中的Reactor
         for (int i = 0; i < nThreads; i ++) {
             boolean success = false;
             try {
+                // 创建reactor
                 children[i] = newChild(executor, args);
                 success = true;
             } catch (Exception e) {
@@ -109,7 +116,7 @@ public abstract class MultithreadEventExecutorGroup extends AbstractEventExecuto
                 }
             }
         }
-
+        // 创建channel到Reactor的绑定策略
         chooser = chooserFactory.newChooser(children);
 
         final FutureListener<Object> terminationListener = new FutureListener<Object>() {
