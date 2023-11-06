@@ -55,8 +55,14 @@ public abstract class AbstractBootstrap<B extends AbstractBootstrap<B, C>, C ext
     private static final Map.Entry<ChannelOption<?>, Object>[] EMPTY_OPTION_ARRAY = new Map.Entry[0];
     @SuppressWarnings("unchecked")
     private static final Map.Entry<AttributeKey<?>, Object>[] EMPTY_ATTRIBUTE_ARRAY = new Map.Entry[0];
-
+    /**
+     * Main Reactor线程组
+     */
     volatile EventLoopGroup group;
+    /**
+     * 用于创建ServerSocketChannel  ReflectiveChannelFactory
+     * 在 Netty 服务端启动的过程中，会通过这个ChannelFactory去创建相应的Channel实例
+     */
     @SuppressWarnings("deprecation")
     private volatile ChannelFactory<? extends C> channelFactory;
     private volatile SocketAddress localAddress;
