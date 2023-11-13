@@ -55,7 +55,7 @@ public abstract class AbstractNioChannel extends AbstractChannel {
      */
     private final SelectableChannel ch;
     /**
-     * Channel监听事件合集，这里是SelectionKey.OP_ACCEPT事件
+     * Channel监听事件合集，针对子类：NioServerSocketChannel：这里是SelectionKey.OP_ACCEPT事件
      */
     protected final int readInterestOp;
     /**

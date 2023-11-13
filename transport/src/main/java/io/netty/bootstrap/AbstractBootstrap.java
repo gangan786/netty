@@ -317,6 +317,10 @@ public abstract class AbstractBootstrap<B extends AbstractBootstrap<B, C>, C ext
         }
     }
 
+    /**
+     * 首先创建NioServerSocketChannel，并对NioServerSocketChannel进行初始化，最后将NioServerSocketChannel注册到Main Reactor中。
+     * @return
+     */
     final ChannelFuture initAndRegister() {
         Channel channel = null;
         try {
