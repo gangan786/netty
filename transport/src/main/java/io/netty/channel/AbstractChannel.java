@@ -363,6 +363,7 @@ public abstract class AbstractChannel extends DefaultAttributeMap implements Cha
 
     /**
      * Create a new {@link AbstractUnsafe} instance which will be used for the life-time of the {@link Channel}
+     * 对于子类NioServerSocketChannel，他的unsafe实现是：io.netty.channel.nio.AbstractNioMessageChannel.NioMessageUnsafe
      */
     protected abstract AbstractUnsafe newUnsafe();
 
@@ -545,7 +546,7 @@ public abstract class AbstractChannel extends DefaultAttributeMap implements Cha
                     return;
                 }
                 boolean firstRegistration = neverRegistered;
-                // 执行真正的注册操作
+                // 执行真正的注册操作，将channel注册到Selector上
                 doRegister();
                 // 修改注册状态
                 neverRegistered = false;

@@ -341,6 +341,7 @@ public abstract class AbstractBootstrap<B extends AbstractBootstrap<B, C>, C ext
         }
 
         // 向main reactor注册ServerSocketChannel
+        // 实现类是io.netty.channel.SingleThreadEventLoop.register(io.netty.channel.Channel)
         ChannelFuture regFuture = config().group().register(channel);
         if (regFuture.cause() != null) {
             if (channel.isRegistered()) {
@@ -374,6 +375,9 @@ public abstract class AbstractBootstrap<B extends AbstractBootstrap<B, C>, C ext
             @Override
             public void run() {
                 if (regFuture.isSuccess()) {
+                    // bind事件在 Netty 中被定义为outbound事件，所以它在pipeline中是反向传播。
+                    // 先从TailContext开始反向传播直到HeadContext。
+                    // 而bind的核心逻辑也正是实现在HeadContext中。
                     channel.bind(localAddress, promise).addListener(ChannelFutureListener.CLOSE_ON_FAILURE);
                 } else {
                     promise.setFailure(regFuture.cause());

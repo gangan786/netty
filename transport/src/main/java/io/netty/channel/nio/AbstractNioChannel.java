@@ -60,6 +60,10 @@ public abstract class AbstractNioChannel extends AbstractChannel {
     protected final int readInterestOp;
     /**
      * channel注册到Selector后获得的SelectKey
+     * SelectionKey可以理解为Channel在Selector上的特殊表示形式，
+     * SelectionKey中封装了Channel感兴趣的IO事件集合~~~interestOps，以及IO就绪的事件集合~~readyOps，
+     * 同时也封装了对应的JDK NIO Channel以及注册的Selector。
+     * 最后还有一个重要的属性attachment，可以允许我们在SelectionKey上附加一些自定义的对象
      */
     volatile SelectionKey selectionKey;
     boolean readPending;
@@ -387,6 +391,14 @@ public abstract class AbstractNioChannel extends AbstractChannel {
         boolean selected = false;
         for (;;) {
             try {
+                /**
+                 * ops = 0，这个操作的主要目的是先获取到Channel在Selector中对应的SelectionKey，完成注册。
+                 * 当绑定操作完成后，在去向SelectionKey添加感兴趣的IO事件：OP_ACCEPT事件
+                 * att = this，将 Netty 自定义的NioServerSocketChannel（这里的this指针）附着在SelectionKey的attechment属性上，
+                 * 完成 Netty 自定义Channel与 JDK NIO Channel的关系绑定。
+                 * 这样在每次对Selector进行IO就绪事件轮询时，
+                 * Netty 都可以从 JDK NIO Selector返回的SelectionKey中获取到自定义的Channel对象（这里指的就是NioServerSocketChannel）。
+                 */
                 selectionKey = javaChannel().register(eventLoop().unwrappedSelector(), 0, this);
                 return;
             } catch (CancelledKeyException e) {
