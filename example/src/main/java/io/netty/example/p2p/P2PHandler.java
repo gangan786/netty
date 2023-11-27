@@ -15,8 +15,11 @@
  */
 package io.netty.example.p2p;
 
+import io.netty.buffer.ByteBuf;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.ChannelInboundHandlerAdapter;
+
+import java.nio.charset.Charset;
 
 
 public class P2PHandler extends ChannelInboundHandlerAdapter {
@@ -29,7 +32,8 @@ public class P2PHandler extends ChannelInboundHandlerAdapter {
 
     @Override
     public void channelRead(ChannelHandlerContext ctx, Object msg) {
-        System.out.println("收到信息：" + msg);
+        ByteBuf byteBuf = (ByteBuf) msg;
+        System.out.println("收到信息：" + byteBuf.toString(Charset.defaultCharset()));
     }
 
     @Override

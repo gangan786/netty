@@ -1,10 +1,9 @@
 package io.netty.example.p2p;
 
 import io.netty.bootstrap.Bootstrap;
-import io.netty.channel.Channel;
-import io.netty.channel.ChannelFuture;
-import io.netty.channel.ChannelInitializer;
-import io.netty.channel.ChannelOption;
+import io.netty.buffer.ByteBuf;
+import io.netty.buffer.Unpooled;
+import io.netty.channel.*;
 import io.netty.channel.nio.NioEventLoopGroup;
 import io.netty.channel.socket.nio.NioSocketChannel;
 import io.netty.handler.logging.LogLevel;
@@ -13,6 +12,7 @@ import io.netty.handler.logging.LoggingHandler;
 import java.io.BufferedReader;
 import java.io.InputStreamReader;
 import java.net.InetSocketAddress;
+import java.nio.charset.Charset;
 
 public class P2PLocal {
 
@@ -23,8 +23,8 @@ public class P2PLocal {
 
     public static void main(String[] args) throws InterruptedException {
         try {
-            //testP2P();
-            testConnect();
+            testP2P();
+            //testConnect();
 
             System.out.println("Enter text (quit to end)");
             ChannelFuture lastWriteFutureOne = null;
@@ -36,9 +36,20 @@ public class P2PLocal {
                     break;
                 }
 
-                // Sends the received line to the server.
-                lastWriteFutureOne = channelOne.writeAndFlush(line);
+                ByteBuf byteBuf = Unpooled.copiedBuffer(line, Charset.defaultCharset());
+                lastWriteFutureOne = channelOne.writeAndFlush(byteBuf);
                 //lastWriteFutureTwo = channelTwo.writeAndFlush(line);
+
+                lastWriteFutureOne.addListener(new ChannelFutureListener() {
+                    @Override
+                    public void operationComplete(ChannelFuture future) throws Exception {
+                        if (future.isSuccess()) {
+                            System.out.println("channelOne发送成功");
+                        } else {
+                            System.out.println("channelOne发送失败：" + future.cause());
+                        }
+                    }
+                });
             }
 
             // Wait until all messages are flushed before closing the channel.
@@ -47,7 +58,7 @@ public class P2PLocal {
             }
         } catch (Exception e) {
             System.out.println(e.getMessage());
-        }finally {
+        } finally {
             groupOne.shutdownGracefully();
             groupTwo.shutdownGracefully();
         }
@@ -135,7 +146,7 @@ public class P2PLocal {
         connect.awaitUninterruptibly();
         if (connect.isSuccess()) {
             System.out.println("连接成功");
-            channelOne=connect.channel();
+            channelOne = connect.channel();
         } else {
             System.out.println("连接失败" + connect.cause());
         }
