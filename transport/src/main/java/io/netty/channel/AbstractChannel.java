@@ -806,7 +806,8 @@ public abstract class AbstractChannel extends DefaultAttributeMap implements Cha
                         try {
                             // 在GlobalEventExecutor中执行channel的关闭任务,设置closeFuture,promise success
                             // Execute the close.
-                            // 假如开启了SO_LINGER，在prepareToClose中对SelectionKey进行了java.nio.channels.SelectionKey.cancel()操作，在这里doClose0()也有cancel()操作，他两有什么不一样，为什么要cancel两次？
+                            // 假如开启了SO_LINGER，在prepareToClose中对SelectionKey进行了java.nio.channels.SelectionKey.cancel()操作，
+                            // 在这里doClose0()也有cancel()操作，他两有什么不一样，为什么要cancel两次？
                             doClose0(promise);
                         } finally {
                             // reactor线程中执行
@@ -919,9 +920,17 @@ public abstract class AbstractChannel extends DefaultAttributeMap implements Cha
             // the deregister operation this could lead to have a handler invoked by different EventLoop and so
             // threads.
             // 上面的注释解释了为什么要提交到EventLoop延后执行deregister操作
-            // 另外一个说法：这里延后 deRegister 操作的原因是用于处理一种极端的异常情况，前边我们提到 Channel 的 deregister() 操作是可以在用户的 ChannelHandler 中执行的，用户行为是不可预知的。
-            // 我们想象一下这样的一个场景：假如当前 pipeline 中还有事件传播（比如正在处理编码解码），与此同时 deregister() 方法可能会在某个事件回调中被用户调用，导致其它事件在传播的过程中，Channel 被从 Reactor 上注销掉了。
-            // 并且同时 channel 又注册到新的 Reactor 上。如果此时旧的 Reactor 正在处理 pipeline 上的事件而旧 Reactor 还未处理完的数据理应继续在旧的 Reactor 中处理，如果此时我们立马执行 deRegister ，未处理完的数据就会在新的 Reactor 上处理，这样就会导致一个 handler 被多个 Reactor 线程处理导致线程安全问题。所以需要延后 deRegister 的操作。
+            // 另外一个说法：这里延后 deRegister 操作的原因是用于处理一种极端的异常情况，
+            // 前边我们提到 Channel 的 deregister() 操作是可以在用户的 ChannelHandler 中执行的，
+            // 用户行为是不可预知的。
+            // 我们想象一下这样的一个场景：假如当前 pipeline 中还有事件传播（比如正在处理编码解码），
+            // 与此同时 deregister() 方法可能会在某个事件回调中被用户调用，导致其它事件在传播的过程中，
+            // Channel 被从 Reactor 上注销掉了。
+            // 并且同时 channel 又注册到新的 Reactor 上。
+            // 如果此时旧的 Reactor 正在处理 pipeline 上的事件
+            // 而旧 Reactor 还未处理完的数据理应继续在旧的 Reactor 中处理，如果此时我们立马执行 deRegister ，
+            // 未处理完的数据就会在新的 Reactor 上处理，这样就会导致一个 handler 被多个 Reactor 线程处理导致线程安全问题。
+            // 所以需要延后 deRegister 的操作。
             // See:
             // https://github.com/netty/netty/issues/4435
             invokeLater(new Runnable() {
