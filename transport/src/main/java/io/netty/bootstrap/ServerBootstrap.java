@@ -227,7 +227,8 @@ public class ServerBootstrap extends AbstractBootstrap<ServerBootstrap, ServerCh
             try {
                 /**
                  * 1：在Sub Reactor线程组中选择一个Reactor绑定
-                 * 2：将客户端SocketChannel注册到绑定的Reactor上（客户端 NioSocketChannel 向 Sub Reactor Group 注册的流程完全和服务端 NioServerSocketChannel 向 Main Reactor Group 注册流程一样。）
+                 * 2：将客户端SocketChannel注册到绑定的Reactor上（客户端 NioSocketChannel 向 Sub Reactor Group
+                 *    注册的流程完全和服务端 NioServerSocketChannel 向 Main Reactor Group 注册流程一样。）
                  * 3：SocketChannel注册到sub reactor中的selector上，并监听OP_READ事件
                  * */
                 childGroup.register(child).addListener(new ChannelFutureListener() {

@@ -819,7 +819,9 @@ abstract class AbstractChannelHandlerContext implements ChannelHandlerContext, R
             // 如果当前线程不是ChannelHandler指定的executor,
             // 则封装成异步任务提交给指定executor执行，注意这里的executor不一定是reactor线程。
             // 为什么不一定是reactor线程？
-            // 在向 pipeline 添加 ChannelHandler 的时候可以通过ChannelPipeline#addLast(EventExecutorGroup,ChannelHandler......) 方法指定执行该 ChannelHandler 的executor。如果不特殊指定，那么执行该 ChannelHandler 的executor默认为该 Channel 绑定的 Reactor 线程。
+            // 在向 pipeline 添加 ChannelHandler 的时候可以通过
+            // ChannelPipeline#addLast(EventExecutorGroup,ChannelHandler......) 方法指定执行该 ChannelHandler 的executor。
+            // 如果不特殊指定，那么执行该 ChannelHandler 的executor默认为该 Channel 绑定的 Reactor 线程。
             final WriteTask task = WriteTask.newInstance(next, m, promise, flush);
             if (!safeExecute(executor, task, promise, m, !flush)) {
                 // We failed to submit the WriteTask. We need to cancel it so we decrement the pending bytes

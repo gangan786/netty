@@ -418,7 +418,8 @@ public class NioSocketChannel extends AbstractNioByteChannel implements io.netty
                 case 0:
                     // We have something else beside ByteBuffers to write so fallback to normal writes.
                     // 这里主要是针对 网络传输文件数据 的处理 FileRegion
-                    // 这里 ChannelOutboundBuffer 虽然不为空，但是装载的 NioByteBuffer 个数却为 0 说明 ChannelOutboundBuffer 中装载的是 FileRegion 类型
+                    // 这里 ChannelOutboundBuffer 虽然不为空，
+                    // 但是装载的 NioByteBuffer 个数却为 0 说明 ChannelOutboundBuffer 中装载的是 FileRegion 类型
                     writeSpinCount -= doWrite0(in);
                     break;
                 case 1: {

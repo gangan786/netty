@@ -171,7 +171,8 @@ public abstract class AbstractNioByteChannel extends AbstractNioChannel {
             final ByteBufAllocator allocator = config.getAllocator();
             //allocHandler用于统计每次读取数据的大小，方便下次分配合适大小的ByteBuf
             // 自适应ByteBuf分配器 AdaptiveRecvByteBufAllocator ,用于动态调节ByteBuf容量
-            final RecvByteBufAllocator.Handle allocHandle = recvBufAllocHandle();// 获得到的RecvByteBufAllocator为AdaptiveRecvByteBufAllocator
+            // 获得到的RecvByteBufAllocator为AdaptiveRecvByteBufAllocator
+            final RecvByteBufAllocator.Handle allocHandle = recvBufAllocHandle();
             // 重置清除上次的统计指标
             allocHandle.reset(config);
 
@@ -189,14 +190,16 @@ public abstract class AbstractNioByteChannel extends AbstractNioChannel {
                         // nothing was read. release the buffer.
                         byteBuf.release();
                         byteBuf = null;
-                        // 当客户端主动关闭连接时（客户端发送fin1），会触发read就绪事件，这里从channel读取的数据会是-1，此时服务器的状态是CLOSE_WAIT，客户端的状态是FIN_WAIT2
+                        // 当客户端主动关闭连接时（客户端发送fin1），会触发read就绪事件，
+                        // 这里从channel读取的数据会是-1，此时服务器的状态是CLOSE_WAIT，客户端的状态是FIN_WAIT2
                         close = allocHandle.lastBytesRead() < 0;
                         if (close) {
                             // lastBytesRead < 0：表示客户端主动发起了连接关闭流程，Netty开始连接关闭处理流程
                             // There is nothing left to read as we received an EOF.
                             readPending = false;
                         }
-                        // lastBytesRead = 0：表示当前NioSocketChannel上的数据已经全部读取完毕，没有数据可读了。本次OP_READ事件圆满处理完毕，可以开开心心的退出read loop
+                        // lastBytesRead = 0：表示当前NioSocketChannel上的数据已经全部读取完毕，
+                        // 没有数据可读了。本次OP_READ事件圆满处理完毕，可以开开心心的退出read loop
                         break;
                     }
 
@@ -205,8 +208,9 @@ public abstract class AbstractNioByteChannel extends AbstractNioChannel {
                     readPending = false;
                     // 触发ChannelRead事件，由对应的ChannelHandle处理改IO数据
                     pipeline.fireChannelRead(byteBuf);
-                    byteBuf = null;// 置为null方便垃圾回收？但是已经通过事件把引用传播出去了，这可能是答案：当执行到这里的时候就跳出循环了，需要将其置为null
-                } while (allocHandle.continueReading());// 断是否应该继续read loop，默认最多循环16次
+                    // 置为null方便垃圾回收？但是已经通过事件把引用传播出去了，这可能是答案：当执行到这里的时候就跳出循环了，需要将其置为null
+                    byteBuf = null;
+                } while (allocHandle.continueReading()); // 断是否应该继续read loop，默认最多循环16次
 
                 // 根据本轮read loop总共读取到的字节数totalBytesRead来决定是否对用于接收下一轮OP_READ事件数据的ByteBuffer进行扩容或者缩容
                 allocHandle.readComplete();
