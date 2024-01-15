@@ -82,6 +82,9 @@ public abstract class SingleThreadEventExecutor extends AbstractScheduledEventEx
             AtomicReferenceFieldUpdater.newUpdater(
                     SingleThreadEventExecutor.class, ThreadProperties.class, "threadProperties");
 
+    /**
+     * 提交的异步任务队列
+     */
     private final Queue<Runnable> taskQueue;
 
     private volatile Thread thread;
@@ -948,6 +951,10 @@ public abstract class SingleThreadEventExecutor extends AbstractScheduledEventEx
          * 调用别的方法并不会唤醒Reactor线程。在初始化NioEventLoop时会设置为false，
          * 表示并不是只有addTask方法才能唤醒Reactor线程 还有其他方法可以唤醒Reactor线程，
          * 比如这里的execute方法就会唤醒Reactor线程。
+         *
+         * 对于NioEventLoop来说，
+         * 表示唤醒阻塞在java.nio.channels.Selector#select(long)线程
+         * 起来执行添加的异步任务
          */
         if (!addTaskWakesUp && immediate) {
             wakeup(inEventLoop);

@@ -147,6 +147,12 @@ public final class NioEventLoop extends SingleThreadEventLoop {
     //    AWAKE            when EL is awake
     //    NONE             when EL is waiting with no wakeup scheduled
     //    other value T    when EL is waiting with wakeup scheduled at time T
+    /**
+     * nextWakeupNanos用来保存java.nio.channels.Selector#select(long)的超时时间
+     * 这里使用原子变量的原因是，这个字段会在io.netty.channel.nio.NioEventLoop#wakeup(boolean)使用
+     * 这个wakeup方法会在向EventLoop添加异步任务的时候被调用
+     * 由于添加异步任务是多线程并发，所以这里设置成原子变量
+     */
     private final AtomicLong nextWakeupNanos = new AtomicLong(AWAKE);
 
     private final SelectStrategy selectStrategy;
@@ -549,6 +555,12 @@ public final class NioEventLoop extends SingleThreadEventLoop {
         }
     }
 
+    /**
+     * 这里就是NioEventLoop线程执行的最核心的方法
+     * 1. 轮训所有注册在其上的Channel中的IO就绪事件
+     * 2. 处理对应Channel上的IO事件
+     * 3. 执行异步任务
+     */
     @Override
     protected void run() {
         int selectCnt = 0;
@@ -559,6 +571,15 @@ public final class NioEventLoop extends SingleThreadEventLoop {
                 try {
                     // 根据轮询策略获取轮询结果 这里的hasTasks()主要检查的是普通队列和尾部队列中是否有异步任务等待执行
                     strategy = selectStrategy.calculateStrategy(selectNowSupplier, hasTasks());
+                    /*
+                    当前selectStrategy.calculateStrategy返回值仅有这三种情况
+                    返回 -1： switch 逻辑分支进入SelectStrategy.SELECT分支，表示此时Reactor中没有异步任务需要执行，
+                            Reactor线程可以安心的阻塞在Selector上等待IO就绪事件发生。
+                    返回 0： switch 逻辑分支进入default分支，表示此时Reactor中没有IO就绪事件但是有异步任务需要执行，
+                            流程通过default分支直接进入了处理异步任务的逻辑部分。
+                    返回 > 0：switch 逻辑分支进入default分支，表示此时Reactor中既有IO就绪事件发生也有异步任务需要执行，
+                            流程通过default分支直接进入了处理IO就绪事件和执行异步任务逻辑部分。
+                     */
                     switch (strategy) {
                     case SelectStrategy.CONTINUE:
                         continue;
@@ -604,9 +625,12 @@ public final class NioEventLoop extends SingleThreadEventLoop {
                     continue;
                 }
 
+                // 执行到这里说明满足了唤醒条件，Reactor线程从selector上被唤醒开始处理IO就绪事件和执行异步任务
+
                 selectCnt++;
                 cancelledKeys = 0;
                 needsToSelectAgain = false;
+                // 调整Reactor线程执行IO事件和执行异步任务的CPU时间比例 默认50，表示执行IO事件和异步任务的时间比例是一比一
                 final int ioRatio = this.ioRatio;
                 boolean ranTasks;
                 if (ioRatio == 100) {
@@ -633,13 +657,8 @@ public final class NioEventLoop extends SingleThreadEventLoop {
                     ranTasks = runAllTasks(0); // This will run the minimum number of tasks
                 }
 
-                /**
-                 * 如果ranTasks = false 并且 strategy = 0
-                 * 这代表Reactor线程本次既没有异步任务执行
-                 * 也没有IO就绪的Channel需要处理却被意外的唤醒。等于是空转了一圈啥也没干
-                 * Netty就这样通过计数Reactor被意外唤醒的次数，如果计数selectCnt达到了512次，
-                 * 则通过重建Selector 巧妙的绕开了JDK NIO Epoll空轮询BUG
-                 */
+
+                //判断是否触发JDK Epoll BUG 触发空轮询
                 if (ranTasks || strategy > 0) {
                     if (selectCnt > MIN_PREMATURE_SELECTOR_RETURNS && logger.isDebugEnabled()) {
                         logger.debug("Selector.select() returned prematurely {} times in a row for Selector {}.",
@@ -647,7 +666,13 @@ public final class NioEventLoop extends SingleThreadEventLoop {
                     }
                     selectCnt = 0;
                 } else if (unexpectedSelectorWakeup(selectCnt)) { // Unexpected wakeup (unusual case)
-                    //
+                    /**
+                     * 如果ranTasks = false 并且 strategy = 0
+                     * 这代表Reactor线程本次既没有异步任务执行
+                     * 也没有IO就绪的Channel需要处理却被意外的唤醒。等于是空转了一圈啥也没干
+                     * Netty就这样通过计数Reactor被意外唤醒的次数，如果计数selectCnt达到了512次，
+                     * 则通过重建Selector 巧妙的绕开了JDK NIO Epoll空轮询BUG
+                     */
                     selectCnt = 0;
                 }
             } catch (CancelledKeyException e) {

@@ -393,7 +393,7 @@ public abstract class AbstractNioChannel extends AbstractChannel {
             try {
                 /**
                  * ops = 0，这个操作的主要目的是先获取到Channel在Selector中对应的SelectionKey，完成注册。
-                 * 当绑定操作完成后，在去向SelectionKey添加感兴趣的IO事件：OP_ACCEPT事件
+                 * 当绑定操作完成后，再去向SelectionKey添加感兴趣的IO事件：OP_ACCEPT事件
                  * att = this，将 Netty 自定义的NioServerSocketChannel（这里的this指针）附着在SelectionKey的attechment属性上，
                  * 完成 Netty 自定义Channel与 JDK NIO Channel的关系绑定。
                  * 这样在每次对Selector进行IO就绪事件轮询时，
