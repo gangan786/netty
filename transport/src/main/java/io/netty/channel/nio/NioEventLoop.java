@@ -148,6 +148,7 @@ public final class NioEventLoop extends SingleThreadEventLoop {
     //    NONE             when EL is waiting with no wakeup scheduled
     //    other value T    when EL is waiting with wakeup scheduled at time T
     /**
+     * 即能表示Reactor当前的状态，也能表示Reactor线程阻塞超时的时间
      * nextWakeupNanos用来保存java.nio.channels.Selector#select(long)的超时时间
      * 这里使用原子变量的原因是，这个字段会在io.netty.channel.nio.NioEventLoop#wakeup(boolean)使用
      * 这个wakeup方法会在向EventLoop添加异步任务的时候被调用
@@ -611,6 +612,8 @@ public final class NioEventLoop extends SingleThreadEventLoop {
                             // 执行到这里说明Reactor已经从Selector上被唤醒了
                             // 设置Reactor的状态为苏醒状态AWAKE
                             // lazySet优化不必要的volatile操作，不使用内存屏障，不保证写操作的马上可见性（单线程不需要保证）
+                            // lazySet这样是不是会导致在io.netty.channel.nio.NioEventLoop.wakeup方法里面，
+                            // 不能及时看到AWAKE状态导致不必要的系统调用：java.nio.channels.Selector.wakeup
                             nextWakeupNanos.lazySet(AWAKE);
                         }
                         // fall through
@@ -633,6 +636,10 @@ public final class NioEventLoop extends SingleThreadEventLoop {
                 // 调整Reactor线程执行IO事件和执行异步任务的CPU时间比例 默认50，表示执行IO事件和异步任务的时间比例是一比一
                 final int ioRatio = this.ioRatio;
                 boolean ranTasks;
+                /*
+                对于不同的ioRatio值，我们可以看到他都是优先处理就绪IO：processSelectedKeys
+                ioRatio只是用来限制异步任务的相对时间
+                 */
                 if (ioRatio == 100) {
                     try {
                         if (strategy > 0) {
@@ -651,6 +658,7 @@ public final class NioEventLoop extends SingleThreadEventLoop {
                         // Ensure we always run tasks.
                         // 处理异步任务，有超时限制
                         final long ioTime = System.nanoTime() - ioStartTime;
+                        // 限定在超时时间内 处理有限的异步任务 防止Reactor线程处理异步任务时间过长而导致 I/O 事件阻塞
                         ranTasks = runAllTasks(ioTime * (100 - ioRatio) / ioRatio);
                     }
                 } else {
@@ -829,6 +837,7 @@ public final class NioEventLoop extends SingleThreadEventLoop {
             }
 
             // 目的是再次进入for循环 移除失效的selectKey(socketChannel可能从selector上移除)
+            // 为什么需要needsToSelectAgain可以查看他被设置成true的地方：io.netty.channel.nio.NioEventLoop.cancel
             if (needsToSelectAgain) {
                 selectAgain();
                 selectedKeys = selector.selectedKeys();
@@ -879,6 +888,7 @@ public final class NioEventLoop extends SingleThreadEventLoop {
         // 获取Channel的底层操作类Unsafe
         final AbstractNioChannel.NioUnsafe unsafe = ch.unsafe();
         if (!k.isValid()) {
+            // java.nio.channels.SelectionKey.cancel方法的调用会导致这里的isValid返回false
             // 如果SelectionKey已经失效则关闭对应的Channel
             final EventLoop eventLoop;
             try {
@@ -907,6 +917,7 @@ public final class NioEventLoop extends SingleThreadEventLoop {
             // the NIO JDK channel implementation may throw a NotYetConnectedException.
             if ((readyOps & SelectionKey.OP_CONNECT) != 0) {
                 // 处理Connect事件
+                // 这里的Connect表示客户端发起连接并三次握手成功后的OP_CONNECT事件，属于客户端事件，对应的在服务端的事件就是OP_ACCEPT
                 // remove OP_CONNECT as otherwise Selector.select(..) will always return without blocking
                 // See https://github.com/netty/netty/issues/924
                 // 移除该selectKey对connect事件的监听，否则Selector会一直通知
