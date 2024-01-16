@@ -147,6 +147,13 @@ public final class NioEventLoop extends SingleThreadEventLoop {
     //    AWAKE            when EL is awake
     //    NONE             when EL is waiting with no wakeup scheduled
     //    other value T    when EL is waiting with wakeup scheduled at time T
+    /**
+     * 即能表示Reactor当前的状态，也能表示Reactor线程阻塞超时的时间
+     * nextWakeupNanos用来保存java.nio.channels.Selector#select(long)的超时时间
+     * 这里使用原子变量的原因是，这个字段会在io.netty.channel.nio.NioEventLoop#wakeup(boolean)使用
+     * 这个wakeup方法会在向EventLoop添加异步任务的时候被调用
+     * 由于添加异步任务是多线程并发，所以这里设置成原子变量
+     */
     private final AtomicLong nextWakeupNanos = new AtomicLong(AWAKE);
 
     private final SelectStrategy selectStrategy;
@@ -549,16 +556,31 @@ public final class NioEventLoop extends SingleThreadEventLoop {
         }
     }
 
+    /**
+     * 这里就是NioEventLoop线程执行的最核心的方法
+     * 1. 轮训所有注册在其上的Channel中的IO就绪事件
+     * 2. 处理对应Channel上的IO事件
+     * 3. 执行异步任务
+     */
     @Override
     protected void run() {
+        // 记录异常JDK NIO Epoll的空轮询次数 用于解决JDK epoll的空轮训bug
         int selectCnt = 0;
         for (;;) {
             try {
-                // 记录轮询次数 用于解决JDK epoll的空轮训bug
                 int strategy;
                 try {
                     // 根据轮询策略获取轮询结果 这里的hasTasks()主要检查的是普通队列和尾部队列中是否有异步任务等待执行
                     strategy = selectStrategy.calculateStrategy(selectNowSupplier, hasTasks());
+                    /*
+                    当前selectStrategy.calculateStrategy返回值仅有这三种情况
+                    返回 -1： switch 逻辑分支进入SelectStrategy.SELECT分支，表示此时Reactor中没有异步任务需要执行，
+                            Reactor线程可以安心的阻塞在Selector上等待IO就绪事件发生。
+                    返回 0： switch 逻辑分支进入default分支，表示此时Reactor中没有IO就绪事件但是有异步任务需要执行，
+                            流程通过default分支直接进入了处理异步任务的逻辑部分。
+                    返回 > 0：switch 逻辑分支进入default分支，表示此时Reactor中既有IO就绪事件发生也有异步任务需要执行，
+                            流程通过default分支直接进入了处理IO就绪事件和执行异步任务逻辑部分。
+                     */
                     switch (strategy) {
                     case SelectStrategy.CONTINUE:
                         continue;
@@ -582,6 +604,8 @@ public final class NioEventLoop extends SingleThreadEventLoop {
                             if (!hasTasks()) {
                                 // 再次检查普通任务队列中是否有异步任务，如果恰巧有异步任务提交，则停止IO就绪事件轮训去执行异步任务
                                 // 没有的话开始select阻塞轮询IO就绪事件
+                                // 这里由于JDK NIO Epoll的空轮询BUG存在，可能即使没有任何连接的事件就绪也会被意外唤醒，
+                                // 导致select返回0
                                 strategy = select(curDeadlineNanos);
                             }
                         } finally {
@@ -590,6 +614,8 @@ public final class NioEventLoop extends SingleThreadEventLoop {
                             // 执行到这里说明Reactor已经从Selector上被唤醒了
                             // 设置Reactor的状态为苏醒状态AWAKE
                             // lazySet优化不必要的volatile操作，不使用内存屏障，不保证写操作的马上可见性（单线程不需要保证）
+                            // lazySet这样是不是会导致在io.netty.channel.nio.NioEventLoop.wakeup方法里面，
+                            // 不能及时看到AWAKE状态导致不必要的系统调用：java.nio.channels.Selector.wakeup
                             nextWakeupNanos.lazySet(AWAKE);
                         }
                         // fall through
@@ -604,11 +630,19 @@ public final class NioEventLoop extends SingleThreadEventLoop {
                     continue;
                 }
 
+                // 执行到这里说明满足了唤醒条件，Reactor线程从selector上被唤醒开始处理IO就绪事件和执行异步任务
+
                 selectCnt++;
                 cancelledKeys = 0;
                 needsToSelectAgain = false;
+                // 调整Reactor线程执行IO事件和执行异步任务的CPU时间比例 默认50，表示执行IO事件和异步任务的时间比例是一比一
                 final int ioRatio = this.ioRatio;
+                // 表示是否执行过至少一次异步任务
                 boolean ranTasks;
+                /*
+                对于不同的ioRatio值，我们可以看到他都是优先处理就绪IO：processSelectedKeys
+                ioRatio只是用来限制异步任务的相对时间
+                 */
                 if (ioRatio == 100) {
                     try {
                         if (strategy > 0) {
@@ -627,27 +661,32 @@ public final class NioEventLoop extends SingleThreadEventLoop {
                         // Ensure we always run tasks.
                         // 处理异步任务，有超时限制
                         final long ioTime = System.nanoTime() - ioStartTime;
+                        // 限定在超时时间内 处理有限的异步任务 防止Reactor线程处理异步任务时间过长而导致 I/O 事件阻塞
                         ranTasks = runAllTasks(ioTime * (100 - ioRatio) / ioRatio);
                     }
                 } else {
                     ranTasks = runAllTasks(0); // This will run the minimum number of tasks
                 }
 
-                /**
-                 * 如果ranTasks = false 并且 strategy = 0
-                 * 这代表Reactor线程本次既没有异步任务执行
-                 * 也没有IO就绪的Channel需要处理却被意外的唤醒。等于是空转了一圈啥也没干
-                 * Netty就这样通过计数Reactor被意外唤醒的次数，如果计数selectCnt达到了512次，
-                 * 则通过重建Selector 巧妙的绕开了JDK NIO Epoll空轮询BUG
-                 */
+
+                //判断是否触发JDK Epoll BUG 触发空轮询
                 if (ranTasks || strategy > 0) {
                     if (selectCnt > MIN_PREMATURE_SELECTOR_RETURNS && logger.isDebugEnabled()) {
                         logger.debug("Selector.select() returned prematurely {} times in a row for Selector {}.",
                                 selectCnt - 1, selector);
                     }
+                    // 进入到这里表示select被io事件唤醒或者执行了异步任务
+                    // 这里就要把selectCnt归零
+                    // 从这里也说明只有连续被空轮询512次，才会执行到下面的：unexpectedSelectorWakeup()去重建selector
                     selectCnt = 0;
                 } else if (unexpectedSelectorWakeup(selectCnt)) { // Unexpected wakeup (unusual case)
-                    //
+                    /**
+                     * 如果ranTasks = false 并且 strategy = 0
+                     * 这代表Reactor线程本次既没有异步任务执行
+                     * 也没有IO就绪的Channel需要处理却被意外的唤醒。等于是空转了一圈啥也没干
+                     * Netty就这样通过计数Reactor被意外唤醒的次数，如果计数selectCnt达到了512次，
+                     * 则通过重建Selector 巧妙的绕开了JDK NIO Epoll空轮询BUG
+                     */
                     selectCnt = 0;
                 }
             } catch (CancelledKeyException e) {
@@ -804,6 +843,7 @@ public final class NioEventLoop extends SingleThreadEventLoop {
             }
 
             // 目的是再次进入for循环 移除失效的selectKey(socketChannel可能从selector上移除)
+            // 为什么需要needsToSelectAgain可以查看他被设置成true的地方：io.netty.channel.nio.NioEventLoop.cancel
             if (needsToSelectAgain) {
                 selectAgain();
                 selectedKeys = selector.selectedKeys();
@@ -826,6 +866,7 @@ public final class NioEventLoop extends SingleThreadEventLoop {
             // null out entry in the array to allow to have it GC'ed once the Channel close
             // See https://github.com/netty/netty/issues/2363
             // 对应迭代器中得remove   selector不会自己清除selectedKey
+            // selector只会往其中添加SelectionKey，所以需要手动清除，置为null方便垃圾回收
             selectedKeys.keys[i] = null;
 
             final Object a = k.attachment();
@@ -842,9 +883,12 @@ public final class NioEventLoop extends SingleThreadEventLoop {
                 // null out entries in the array to allow to have it GC'ed once the Channel close
                 // See https://github.com/netty/netty/issues/2363
                 // 将从i+1位置到最后一个selectKey都置为null移除，为啥不对0到i的selectKey也都置为null呢？
+                // 针对上面的这个疑问，可能是因为在reset调用中，将size赋值为0，然后再配合下面的selectAgain()
+                // 将0到i值覆盖成新的，就可以实现原有的selectedKeys的清空
                 selectedKeys.reset(i + 1);
 
                 selectAgain();
+                // i=-1，再自增，i就又从0开始循环了
                 i = -1;
             }
         }
@@ -854,6 +898,7 @@ public final class NioEventLoop extends SingleThreadEventLoop {
         // 获取Channel的底层操作类Unsafe
         final AbstractNioChannel.NioUnsafe unsafe = ch.unsafe();
         if (!k.isValid()) {
+            // java.nio.channels.SelectionKey.cancel方法的调用会导致这里的isValid返回false
             // 如果SelectionKey已经失效则关闭对应的Channel
             final EventLoop eventLoop;
             try {
@@ -882,6 +927,7 @@ public final class NioEventLoop extends SingleThreadEventLoop {
             // the NIO JDK channel implementation may throw a NotYetConnectedException.
             if ((readyOps & SelectionKey.OP_CONNECT) != 0) {
                 // 处理Connect事件
+                // 这里的Connect表示客户端发起连接并三次握手成功后的OP_CONNECT事件，属于客户端事件，对应的在服务端的事件就是OP_ACCEPT
                 // remove OP_CONNECT as otherwise Selector.select(..) will always return without blocking
                 // See https://github.com/netty/netty/issues/924
                 // 移除该selectKey对connect事件的监听，否则Selector会一直通知

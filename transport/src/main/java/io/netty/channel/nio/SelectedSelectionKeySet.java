@@ -99,6 +99,7 @@ final class SelectedSelectionKeySet extends AbstractSet<SelectionKey> {
 
     void reset(int start) {
         Arrays.fill(keys, start, size, null);
+        // size = 0表示从头开始覆盖更新add
         size = 0;
     }
 

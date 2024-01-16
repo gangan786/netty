@@ -82,6 +82,9 @@ public abstract class SingleThreadEventExecutor extends AbstractScheduledEventEx
             AtomicReferenceFieldUpdater.newUpdater(
                     SingleThreadEventExecutor.class, ThreadProperties.class, "threadProperties");
 
+    /**
+     * 提交的异步任务队列
+     */
     private final Queue<Runnable> taskQueue;
 
     private volatile Thread thread;
@@ -487,6 +490,8 @@ public abstract class SingleThreadEventExecutor extends AbstractScheduledEventEx
     /**
      * Poll all tasks from the task queue and run them via {@link Runnable#run()} method.  This method stops running
      * the tasks in the task queue and returns if it ran longer than {@code timeoutNanos}.
+     * @param timeoutNanos
+     * @return 返回true表示执行过taskQueue里面的任务，队尾任务不算，返回false
      */
     protected boolean runAllTasks(long timeoutNanos) {
         fetchFromScheduledTaskQueue();
@@ -509,6 +514,8 @@ public abstract class SingleThreadEventExecutor extends AbstractScheduledEventEx
             // Check timeout every 64 tasks because nanoTime() is relatively expensive.
             // XXX: Hard-coded value - will make it configurable if it is really a problem.
             // 每运行64个异步任务 检查一下 是否达到 执行deadline
+            // 这个每64个的判断很巧妙，即使runTasks达到了64后不用重新设置成0，
+            // 因为变成65后& 0x3F也是1，知道128后& 0x3F才是0，巧妙的解决了每64执行一次的需求
             if ((runTasks & 0x3F) == 0) {
                 lastExecutionTime = getCurrentTimeNanos();
                 if (lastExecutionTime >= deadline) {
@@ -948,6 +955,10 @@ public abstract class SingleThreadEventExecutor extends AbstractScheduledEventEx
          * 调用别的方法并不会唤醒Reactor线程。在初始化NioEventLoop时会设置为false，
          * 表示并不是只有addTask方法才能唤醒Reactor线程 还有其他方法可以唤醒Reactor线程，
          * 比如这里的execute方法就会唤醒Reactor线程。
+         *
+         * 对于NioEventLoop来说，
+         * 表示唤醒阻塞在java.nio.channels.Selector#select(long)线程
+         * 起来执行添加的异步任务
          */
         if (!addTaskWakesUp && immediate) {
             wakeup(inEventLoop);
