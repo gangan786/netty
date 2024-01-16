@@ -564,10 +564,10 @@ public final class NioEventLoop extends SingleThreadEventLoop {
      */
     @Override
     protected void run() {
+        // 记录异常JDK NIO Epoll的空轮询次数 用于解决JDK epoll的空轮训bug
         int selectCnt = 0;
         for (;;) {
             try {
-                // 记录轮询次数 用于解决JDK epoll的空轮训bug
                 int strategy;
                 try {
                     // 根据轮询策略获取轮询结果 这里的hasTasks()主要检查的是普通队列和尾部队列中是否有异步任务等待执行
@@ -604,6 +604,8 @@ public final class NioEventLoop extends SingleThreadEventLoop {
                             if (!hasTasks()) {
                                 // 再次检查普通任务队列中是否有异步任务，如果恰巧有异步任务提交，则停止IO就绪事件轮训去执行异步任务
                                 // 没有的话开始select阻塞轮询IO就绪事件
+                                // 这里由于JDK NIO Epoll的空轮询BUG存在，可能即使没有任何连接的事件就绪也会被意外唤醒，
+                                // 导致select返回0
                                 strategy = select(curDeadlineNanos);
                             }
                         } finally {
@@ -635,6 +637,7 @@ public final class NioEventLoop extends SingleThreadEventLoop {
                 needsToSelectAgain = false;
                 // 调整Reactor线程执行IO事件和执行异步任务的CPU时间比例 默认50，表示执行IO事件和异步任务的时间比例是一比一
                 final int ioRatio = this.ioRatio;
+                // 表示是否执行过至少一次异步任务
                 boolean ranTasks;
                 /*
                 对于不同的ioRatio值，我们可以看到他都是优先处理就绪IO：processSelectedKeys
@@ -672,6 +675,9 @@ public final class NioEventLoop extends SingleThreadEventLoop {
                         logger.debug("Selector.select() returned prematurely {} times in a row for Selector {}.",
                                 selectCnt - 1, selector);
                     }
+                    // 进入到这里表示select被io事件唤醒或者执行了异步任务
+                    // 这里就要把selectCnt归零
+                    // 从这里也说明只有连续被空轮询512次，才会执行到下面的：unexpectedSelectorWakeup()去重建selector
                     selectCnt = 0;
                 } else if (unexpectedSelectorWakeup(selectCnt)) { // Unexpected wakeup (unusual case)
                     /**
@@ -860,6 +866,7 @@ public final class NioEventLoop extends SingleThreadEventLoop {
             // null out entry in the array to allow to have it GC'ed once the Channel close
             // See https://github.com/netty/netty/issues/2363
             // 对应迭代器中得remove   selector不会自己清除selectedKey
+            // selector只会往其中添加SelectionKey，所以需要手动清除，置为null方便垃圾回收
             selectedKeys.keys[i] = null;
 
             final Object a = k.attachment();
@@ -876,9 +883,12 @@ public final class NioEventLoop extends SingleThreadEventLoop {
                 // null out entries in the array to allow to have it GC'ed once the Channel close
                 // See https://github.com/netty/netty/issues/2363
                 // 将从i+1位置到最后一个selectKey都置为null移除，为啥不对0到i的selectKey也都置为null呢？
+                // 针对上面的这个疑问，可能是因为在reset调用中，将size赋值为0，然后再配合下面的selectAgain()
+                // 将0到i值覆盖成新的，就可以实现原有的selectedKeys的清空
                 selectedKeys.reset(i + 1);
 
                 selectAgain();
+                // i=-1，再自增，i就又从0开始循环了
                 i = -1;
             }
         }
