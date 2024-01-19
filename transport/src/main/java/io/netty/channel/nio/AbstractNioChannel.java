@@ -52,6 +52,8 @@ public abstract class AbstractNioChannel extends AbstractChannel {
 
     /**
      * JDK NIO原生Selectable Channel
+     * 对于子类：io.netty.channel.socket.nio.NioSocketChannel，ch保存的是：java.nio.channels.SocketChannel
+     * 对于子类：io.netty.channel.socket.nio.NioServerSocketChannel，ch保存的是：java.nio.channels.ServerSocketChannel
      */
     private final SelectableChannel ch;
     /**
