@@ -148,6 +148,7 @@ public abstract class AbstractNioByteChannel extends AbstractNioChannel {
 
         @Override
         public final void read() {
+            // NioSocketChannel配置的ChannelConfig是NioSocketChannelConfig
             final ChannelConfig config = config();
             if (shouldBreakReadReady(config)) {
                 // 当前连接处以半关闭状态，并且已经将所有遗留的数据发送给了客户端
@@ -203,7 +204,7 @@ public abstract class AbstractNioByteChannel extends AbstractNioChannel {
                         break;
                     }
 
-                    // 记录循环次数
+                    // 记录循环次数，实现类：io.netty.channel.DefaultMaxMessagesRecvByteBufAllocator.MaxMessageHandle
                     allocHandle.incMessagesRead(1);
                     readPending = false;
                     // 触发ChannelRead事件，由对应的ChannelHandle处理改IO数据
