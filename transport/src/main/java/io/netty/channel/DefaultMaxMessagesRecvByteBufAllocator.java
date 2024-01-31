@@ -93,12 +93,15 @@ public abstract class DefaultMaxMessagesRecvByteBufAllocator implements MaxMessa
     public abstract class MaxMessageHandle implements ExtendedHandle {
         private ChannelConfig config;
         // 每次事件轮询时，最多读取16次
+        // 可在启动配置类ServerBootstrap中通过ChannelOption.MAX_MESSAGES_PER_READ选项设置
         private int maxMessagePerRead;
         // 本次事件轮询总共读取的message数,
         // 对于NioServerSocketChannel指的是接收连接的数量
         // 对于NioSocketChannel指的是读取数据的次数
         private int totalMessages;
         // 本次事件轮询总共读取的字节数
+        // 对于NioServerSocketChannel，他接受的是连接，totalBytesRead永远是0
+        // 对于NioSocketChannel，他就是指的是连接读取到的字节数
         private int totalBytesRead;
         //表示本次read loop 尝试读取多少字节，byteBuffer剩余可写的字节数
         private int attemptedBytesRead;

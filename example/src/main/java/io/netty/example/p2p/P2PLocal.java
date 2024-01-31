@@ -25,10 +25,6 @@ public class P2PLocal {
         try {
             testP2P();
             //testConnect();
-            int b= 10;
-            b+=19;
-            int[] a = {};
-            int[12]{1,2};
 
             System.out.println("Enter text (quit to end)");
             ChannelFuture lastWriteFutureOne = null;
