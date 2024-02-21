@@ -101,9 +101,12 @@ public abstract class Recycler<T> {
 
         @Override
         protected void onRemoval(LocalPool<T> value) throws Exception {
+            // 删除LocalPool
             super.onRemoval(value);
             MessagePassingQueue<DefaultHandle<T>> handles = value.pooledHandles;
+            // pooledHandles 置为 null，取消引用
             value.pooledHandles = null;
+            // 清除LocalPool中保存的回收对象
             handles.clear();
         }
     };
