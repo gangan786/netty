@@ -407,9 +407,10 @@ public class NioSocketChannel extends AbstractNioByteChannel implements io.netty
             // SO_SNDBUF设置的发送缓冲区大小 * 2 作为 最大写入字节数  293976 = 146988 << 1
             int maxBytesPerGatheringWrite = ((NioSocketChannelConfig) config).getMaxBytesPerGatheringWrite();
             // 将ChannelOutboundBuffer中缓存的DirectBuffer(Netty 中的 ByteBuffer 实现)转换成JDK NIO 的 ByteBuffer
-            // 本次 write loop 最多转换 1024 个 ByteBuffer（ JDK NIO 实现）。也就是说本次 write loop 最多批量发送多少个 ByteBuffer 。
+            // maxCount表示本次 write loop 最多转换 1024 个 ByteBuffer（ JDK NIO 实现）。也就是说本次 write loop 最多批量发送多少个 ByteBuffer 。
+            // maxBytesPerGatheringWrite表示本次 write loop 中最多从 ChannelOutboundBuffer 中转换 maxBytesPerGatheringWrite 个字节出来
             ByteBuffer[] nioBuffers = in.nioBuffers(1024, maxBytesPerGatheringWrite);
-            // ChannelOutboundBuffer中总共的DirectBuffer数
+            // //本次write loop中需要发送的 JDK ByteBuffer个数
             int nioBufferCnt = in.nioBufferCount();
 
             // Always use nioBuffers() to workaround data-corruption.

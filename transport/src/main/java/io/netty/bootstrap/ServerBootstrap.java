@@ -218,6 +218,7 @@ public class ServerBootstrap extends AbstractBootstrap<ServerBootstrap, ServerCh
 
             // 向客户端NioSocketChannel的pipeline中
             // 添加在启动配置类ServerBootstrap中配置的ChannelHandler
+            // addLast会将childHandle用DefaultChannelHandlerContext包装，并将其加入pipeline链表中
             child.pipeline().addLast(childHandler);
 
             // 利用配置的属性初始化客户端NioSocketChannel

@@ -98,6 +98,7 @@ public final class ChannelOutboundBuffer {
 
     @SuppressWarnings("UnusedDeclaration")
     // ChannelOutboundBuffer中的待发送数据的内存占用总量，方便进行高低水位控制：WriteBufferWaterMark
+    // 所有Entry的pendingSize之和
     private volatile long totalPendingSize;
 
     private static final AtomicIntegerFieldUpdater<ChannelOutboundBuffer> UNWRITABLE_UPDATER =
@@ -158,6 +159,7 @@ public final class ChannelOutboundBuffer {
                 if (!entry.promise.setUncancellable()) {
                     // Was cancelled so make sure we free up memory and notify about the freed bytes
                     int pending = entry.cancel();
+                    // Entry被取消并释放内存后，要调整减少 ChannelOutboundBuffer 的内存占用总量的水位线 totalPendingSize
                     decrementPendingOutboundBytes(pending, false, true);
                 }
                 entry = entry.next;
@@ -831,7 +833,7 @@ public final class ChannelOutboundBuffer {
     }
 
     static final class Entry {
-        // Entry的对象池，用来创建和回收Entry对象
+        // Entry的对象池，用来创建和回收Entry对象，因为存在高频的IO，需要大量的Entry
         // 静态变量引用类型地址 这个是在Klass Point(类型指针)中定义 8字节（开启指针压缩 为4字节）
         private static final ObjectPool<Entry> RECYCLER = ObjectPool.newPool(new ObjectCreator<Entry>() {
             @Override
@@ -842,7 +844,7 @@ public final class ChannelOutboundBuffer {
 
         // DefaultHandle用于回收对象
         private final Handle<Entry> handle;
-        // ChannelOutboundBuffer下一个节点
+        // ChannelOutboundBuffer下一个节点，单链表结构
         Entry next;
         // 待发送数据
         Object msg;
