@@ -292,6 +292,7 @@ public abstract class AbstractNioByteChannel extends AbstractNioChannel {
             // 零拷贝的方式传输文件
             long localFlushedAmount = doWriteFileRegion(region);
             if (localFlushedAmount > 0) {
+                // >0 : 写入了一些数据
                 in.progress(localFlushedAmount);
                 if (region.transferred() >= region.count()) {
                     in.remove();
@@ -327,11 +328,13 @@ public abstract class AbstractNioByteChannel extends AbstractNioChannel {
     protected final Object filterOutboundMessage(Object msg) {
         if (msg instanceof ByteBuf) {
             ByteBuf buf = (ByteBuf) msg;
+            // 判断buf是否使用的是堆外内存模式
             if (buf.isDirect()) {
-                // 判断buf是否使用的是堆外内存模式
+                // true表示使用的是堆外内存
                 return msg;
             }
 
+            // 为避免堆内内存到堆外内存的拷贝，这里必须使用堆外内存存放发送数据
             return newDirectBuffer(buf);
         }
 

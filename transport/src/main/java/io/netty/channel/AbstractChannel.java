@@ -981,6 +981,7 @@ public abstract class AbstractChannel extends DefaultAttributeMap implements Cha
             }
         }
 
+        // write事件在pipeline传播的终点
         @Override
         public final void write(Object msg, ChannelPromise promise) {
             assertEventLoop();

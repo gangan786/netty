@@ -61,7 +61,9 @@ import static io.netty.channel.ChannelHandlerMask.mask;
 abstract class AbstractChannelHandlerContext implements ChannelHandlerContext, ResourceLeakHint {
 
     private static final InternalLogger logger = InternalLoggerFactory.getInstance(AbstractChannelHandlerContext.class);
+    // 当前channelHandleContext的后驱节点，一直到TailContext为止
     volatile AbstractChannelHandlerContext next;
+    // 当前channelHandleContext的前驱节点，一直到HeadContext为止
     volatile AbstractChannelHandlerContext prev;
 
     private static final AtomicIntegerFieldUpdater<AbstractChannelHandlerContext> HANDLER_STATE_UPDATER =
@@ -806,6 +808,7 @@ abstract class AbstractChannelHandlerContext implements ChannelHandlerContext, R
                 (MASK_WRITE | MASK_FLUSH) : MASK_WRITE);
         //用于检查内存泄露
         final Object m = pipeline.touch(msg, next);
+        // 获取pipeline中下一个要被执行的channelHandler的executor
         EventExecutor executor = next.executor();
         // 执行 ChannelHandler 中异步事件回调方法的线程必须是 ChannelHandler 指定的executor。
         if (executor.inEventLoop()) {
@@ -917,7 +920,7 @@ abstract class AbstractChannelHandlerContext implements ChannelHandlerContext, R
         // 获取当前ChannelHandler的executor
         EventExecutor currentExecutor = executor();
         do {
-            //获取前一个ChannelHandler
+            // 获取前一个ChannelHandler，这里就决定了outBound类型的事件是向前传播的，终点为HeadContext
             ctx = ctx.prev;
         } while (skipContext(ctx, currentExecutor, mask, MASK_ONLY_OUTBOUND));
         return ctx;
