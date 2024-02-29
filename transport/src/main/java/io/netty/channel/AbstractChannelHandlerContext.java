@@ -75,6 +75,7 @@ abstract class AbstractChannelHandlerContext implements ChannelHandlerContext, R
     private static final int ADD_PENDING = 1;
     /**
      * {@link ChannelHandler#handlerAdded(ChannelHandlerContext)} was called.
+     * 只有处于ADD_COMPLETE的ChannelHandle才能响应pipeline中传播的事件
      */
     private static final int ADD_COMPLETE = 2;
     /**
@@ -87,11 +88,16 @@ abstract class AbstractChannelHandlerContext implements ChannelHandlerContext, R
      */
     private static final int INIT = 0;
 
+    // ChannelHandlerContext中持有pipeline的引用
     private final DefaultChannelPipeline pipeline;
+    // 对应channelHandler的名称 pipeline实例中唯一
     private final String name;
+    // invokeHandle()判断是否可以响应事件时，
+    // false表示 当channelHandler的状态为ADD_PENDING的时候，也可以响应pipeline中的事件
+    // true表示只有在channelHandler的状态为ADD_COMPLETE的时候才能响应pipeline中的事件
     private final boolean ordered;
     // ChannelHandler执行资格掩码
-    // 可以通过这个掩码来判断当前 ChannelHandler 具有什么样的执行资格
+    // 可以通过这个掩码来标记、判断当前 ChannelHandler 实现了哪些回调方法：flush、write、channelRead...
     private final int executionMask;
 
     // Will be set to null if no child executor should be used, otherwise it will be set to the
@@ -103,6 +109,7 @@ abstract class AbstractChannelHandlerContext implements ChannelHandlerContext, R
     // There is no need to make this volatile as at worse it will just create a few more instances then needed.
     private Tasks invokeTasks;
 
+    // 用于保存当前Handle的状态：REMOVE_COMPLETE、ADD_COMPLETE、ADD_PENDING
     private volatile int handlerState = INIT;
 
     AbstractChannelHandlerContext(DefaultChannelPipeline pipeline, EventExecutor executor,
@@ -943,6 +950,11 @@ abstract class AbstractChannelHandlerContext implements ChannelHandlerContext, R
                 // everything to preserve ordering.
                 //
                 // See https://github.com/netty/netty/issues/10067
+                // ctx.executor() != currentExecutor 也就是前后两个 ChannelHandler 指定的 executor 不同时，
+                // 语义变为：只要前后两个 ChannelHandler 指定的 executor 不同，
+                // 不管下一个 ChannelHandler 有没有覆盖实现指定事件的回调方法，均不能跳过
+                // 加入 ctx.executor() == currentExecutor 条件的判断，
+                // 是为了防止 HttpContentCompressor 在被指定不同的 executor 情况下无法正确的创建压缩内容，导致的一些异常
                 (ctx.executor() == currentExecutor && (ctx.executionMask & mask) == 0);
     }
 

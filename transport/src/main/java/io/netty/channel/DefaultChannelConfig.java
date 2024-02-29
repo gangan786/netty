@@ -67,6 +67,10 @@ public class DefaultChannelConfig implements ChannelConfig {
     private volatile int writeSpinCount = 16;
     private volatile int maxMessagesPerWrite = Integer.MAX_VALUE;
 
+    /**
+     * 控制触发注册OP_ACCEPT或者OP_READ事件的注册与注销
+     * 设置为不等于1表示，将 channel 中感兴趣的读类型事件从 reactor 中注销，从此 reactor 不会再对相应事件进行监听
+     */
     @SuppressWarnings("FieldMayBeFinal")
     private volatile int autoRead = 1;
     private volatile boolean autoClose = true;

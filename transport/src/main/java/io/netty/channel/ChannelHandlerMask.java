@@ -50,6 +50,11 @@ final class ChannelHandlerMask {
     static final int MASK_DISCONNECT = 1 << 11;
     static final int MASK_CLOSE = 1 << 12;
     static final int MASK_DEREGISTER = 1 << 13;
+    /**
+     * 不同于MASK_CHANNEL_READ表示有数据接受可以读取或者连接就绪
+     * MASK_READ表示即将向对应的 reactor 注册读类型事件（比如 OP_ACCEPT 事件 和  OP_READ 事件）
+     * HeadContext就是监听这个事件做出注册：OP_ACCEPT 事件 和  OP_READ 事件
+     */
     static final int MASK_READ = 1 << 14;
     static final int MASK_WRITE = 1 << 15;
     static final int MASK_FLUSH = 1 << 16;
@@ -81,6 +86,7 @@ final class ChannelHandlerMask {
         Map<Class<? extends ChannelHandler>, Integer> cache = MASKS.get();
         Integer mask = cache.get(clazz);
         if (mask == null) {
+            // 由于mask的计算是通过反射，比较吃性能，所以这里通过ThreadLocal缓存起来
             mask = mask0(clazz);
             cache.put(clazz, mask);
         }
@@ -89,13 +95,17 @@ final class ChannelHandlerMask {
 
     /**
      * Calculate the {@code executionMask}.
+     * 通过反射判断handleType实现了哪些方法，
+     * 并将这些统计信息保存在mask
      */
     private static int mask0(Class<? extends ChannelHandler> handlerType) {
         int mask = MASK_EXCEPTION_CAUGHT;
         try {
             if (ChannelInboundHandler.class.isAssignableFrom(handlerType)) {
+                // 如果该ChannelHandler是Inbound类型的，则先将inbound事件全部设置进掩码中
                 mask |= MASK_ALL_INBOUND;
 
+                // 最后在对不感兴趣的事件一一排除（handler中的事件回调方法如果标注了@Skip注解，则认为handler对该事件不感兴趣）
                 if (isSkippable(handlerType, "channelRegistered", ChannelHandlerContext.class)) {
                     mask &= ~MASK_CHANNEL_REGISTERED;
                 }
@@ -173,12 +183,16 @@ final class ChannelHandlerMask {
             public Boolean run() throws Exception {
                 Method m;
                 try {
+                    // 首先查看类中是否覆盖实现了对应的事件回调方法
                     m = handlerType.getMethod(methodName, paramTypes);
                 } catch (NoSuchMethodException e) {
                     if (logger.isDebugEnabled()) {
                         logger.debug(
                             "Class {} missing method {}, assume we can not skip execution", handlerType, methodName, e);
                     }
+                    // 疑惑为什么不是返回true？
+                    // 这里返回false是因为大部分是通过Skip注解判断的，默认所有Handle都继承了对应方法（类似ChannelInboundHandlerAdapter）。
+                    // 很少出现NoSuchMethodException
                     return false;
                 }
                 return m.isAnnotationPresent(Skip.class);
