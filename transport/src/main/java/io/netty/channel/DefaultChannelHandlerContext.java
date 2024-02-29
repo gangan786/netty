@@ -19,6 +19,7 @@ import io.netty.util.concurrent.EventExecutor;
 
 final class DefaultChannelHandlerContext extends AbstractChannelHandlerContext {
 
+    // ChannelHandlerContext包裹的channelHandler
     private final ChannelHandler handler;
 
     DefaultChannelHandlerContext(
