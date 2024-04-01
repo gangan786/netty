@@ -103,7 +103,8 @@ public abstract class AbstractNioByteChannel extends AbstractNioChannel {
             if (!isInputShutdown0()) {
                 if (isAllowHalfClosure(config())) {
                     // isAllowHalfClosure判断服务端是否支持半关闭 isAllowHalfClosure
-                    // TCP半连接关闭处理,关闭读通道并不会向对端发送 FIN
+                    // TCP半连接关闭处理,关闭读通道并不会向对端发送 FIN，此时仍然处于CLOSE_WAIT状态
+                    // 关闭读通道，若此时读缓冲区任然有未读数据，会将这些数据统统丢掉
                     shutdownInput();
                     /**
                      * 在 pipeline 中触发 ChannelInputShutdownEvent 事件，我们可以在 ChannelInputShutdownEvent 事件的回调方法中，
@@ -120,6 +121,8 @@ public abstract class AbstractNioByteChannel extends AbstractNioChannel {
                 inputClosedSeenErrorOnRead = true;
                 // 此事件的触发标志着服务端在 CLOSE_WAIT 状态下已经将所有遗留的数据发送给了客户端，
                 // 服务端可以在该事件的回调中关闭 Channel ，结束 CLOSE_WAIT 进入 LAST_ACK 状态。
+                // 最佳实践：在ChannelInputShutdownReadComplete事件中，被动关闭方一定要调用close彻底关闭连接并释放相关资源，
+                // 否则被动关闭方会一直处于CLOSE_WAIT状态
                 pipeline.fireUserEventTriggered(ChannelInputShutdownReadComplete.INSTANCE);
             }
         }
@@ -226,7 +229,7 @@ public abstract class AbstractNioByteChannel extends AbstractNioChannel {
                     closeOnRead(pipeline);
                 }
             } catch (Throwable t) {
-                // 处理TCP异常关闭的情况
+                // 处理TCP异常关闭的情况，例如收到RST包会在read的时候触发异常
                 handleReadException(pipeline, byteBuf, t, close, allocHandle);
             } finally {
                 // Check if there is a readPending which was not processed yet.

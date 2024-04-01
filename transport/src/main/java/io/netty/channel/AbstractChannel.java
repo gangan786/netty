@@ -69,6 +69,9 @@ public abstract class AbstractChannel extends DefaultAttributeMap implements Cha
     private volatile SocketAddress localAddress;
     private volatile SocketAddress remoteAddress;
     private volatile EventLoop eventLoop;
+    /**
+     * 标识selectKey是否在Selector注册，false表示未注册则不会受到读写事件
+     */
     private volatile boolean registered;
     // channel的关闭流程是否已经开始
     private boolean closeInitiated;
