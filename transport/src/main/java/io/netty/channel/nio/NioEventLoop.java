@@ -805,6 +805,11 @@ public final class NioEventLoop extends SingleThreadEventLoop {
         // 疑问：为什么是256呢，不过显然是攒够一波取消监听的channel再select，有利于减少系统调用
         if (cancelledKeys >= CLEANUP_INTERVAL) {
             cancelledKeys = 0;
+            // key.cancel()只是将key打上标记，并不会从selector的就绪队列移除
+            // 假如有大量的 Channel 从 Selector 中注销，
+            // 就绪集合 selectedKeys 中依然会保存这些 Channel 对应 SelectionKey 直到下次轮询。
+            // 那么当然会影响本次轮询结果 selectedKeys 的有效性，增加了许多不必要的遍历开销
+            // 所以这里需要needsToSelectAgain来保证就绪队列的有效性
             needsToSelectAgain = true;
         }
     }
