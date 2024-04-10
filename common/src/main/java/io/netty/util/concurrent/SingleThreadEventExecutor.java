@@ -705,7 +705,7 @@ public abstract class SingleThreadEventExecutor extends AbstractScheduledEventEx
                         newState = ST_SHUTTING_DOWN;
                         break;
                     default:
-                        // Reactor正在关闭或者已经关闭
+                        // Reactor正在关闭或者已经关闭，Reactor 的状态维持当前状态不变
                         newState = oldState;
                         // 当前Reactor已经处于关闭流程中，则无需在唤醒Reactor了
                         wakeup = false;
@@ -829,11 +829,14 @@ public abstract class SingleThreadEventExecutor extends AbstractScheduledEventEx
         cancelScheduledTasks();
 
         if (gracefulShutdownStartTime == 0) {
-            // 获取优雅关闭开始时间，相对时间
+            // 获取优雅关闭开始时间，相对时间，为了后续判断优雅关闭流程是否超时
             gracefulShutdownStartTime = getCurrentTimeNanos();
         }
 
         // 这里判断只要有task任务需要执行就不能关闭
+        // runAllTasks返回true的时候，shutdownHook岂不是不会执行？
+        // runAllTasks返回true的时候，会进入代码块并将一个WAKEUP_TASK插入异步任务队列中，
+        // 这样就还会触发confirmShutdown的执行，此时runAllTasks会返回false，最终runShutdownHooks会被执行
         if (runAllTasks() || runShutdownHooks()) {
             // runAllTasks() 方法将 Reactor 中 TaskQueue 里剩余的异步任务全部取出执行
             // 调用 runShutdownHooks() 方法将用户注册在 Reactor 上的 ShutdownHook 取出执行
@@ -864,6 +867,7 @@ public abstract class SingleThreadEventExecutor extends AbstractScheduledEventEx
 
         // 当Reactor中所有的任务执行完毕后，判断是否超过gracefulShutdownTimeout
         // 如果超过了 则直接关闭
+        // 由于任务执行时间的不确定，所以实际优雅关闭的时间可能会超出gracefulShutdownTimeout
         if (isShutdown() || nanoTime - gracefulShutdownStartTime > gracefulShutdownTimeout) {
             return true;
         }
