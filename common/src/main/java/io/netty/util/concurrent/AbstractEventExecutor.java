@@ -37,7 +37,19 @@ import java.util.concurrent.TimeUnit;
 public abstract class AbstractEventExecutor extends AbstractExecutorService implements EventExecutor {
     private static final InternalLogger logger = InternalLoggerFactory.getInstance(AbstractEventExecutor.class);
 
+    /**
+     * 当所有异步任务执行完毕后，Netty 为了实现更加优雅的关闭操作，
+     * 一定要保障业务无损，这时候就引入了静默期这个概念，
+     * 如果在这个静默期内，用户没有新的任务向 Reactor 提交那么就开始关闭。
+     * 如果在这个静默期内，还有用户继续提交异步任务，那么就不能关闭，
+     * 需要把静默期内用户提交的异步任务执行完毕才可以放心关闭
+     * 这里的2表示，在2秒内还允许提交异步任务并继续执行
+     */
     static final long DEFAULT_SHUTDOWN_QUIET_PERIOD = 2;
+    /**
+     * 为了防止长时间无法关闭，设置超时时间
+     * 如果超时，无论此时有没有异步任务要执行，都要进行关闭了
+     */
     static final long DEFAULT_SHUTDOWN_TIMEOUT = 15;
 
     private final EventExecutorGroup parent;
